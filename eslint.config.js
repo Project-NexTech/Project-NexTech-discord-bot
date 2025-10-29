@@ -8,7 +8,7 @@ module.exports = [
 		},
 		rules: {
 			'arrow-spacing': ['warn', { before: true, after: true }],
-			'brace-style': ['warn', 'stroustrup', { allowSingleLine: true }],
+			'brace-style': ['error', 'stroustrup', { allowSingleLine: true }],
 			'comma-dangle': ['error', 'always-multiline'],
 			'comma-spacing': 'error',
 			'comma-style': 'error',
@@ -22,7 +22,6 @@ module.exports = [
 			'no-console': 'off',
 			'no-empty-function': 'error',
 			'no-floating-decimal': 'error',
-			'no-inline-comments': 'error',
 			'no-unused-vars': 'warn',
 			'no-duplicate-imports': 'error',
 			'no-lonely-if': 'error',
@@ -32,7 +31,6 @@ module.exports = [
 			'no-var': 'error',
 			'no-undef': 'off',
 			'object-curly-spacing': ['error', 'always'],
-			'prefer-const': 'warn',
 			semi: ['error', 'always'],
 			'space-before-blocks': 'error',
 			'space-before-function-paren': ['error', {

@@ -1,0 +1,218 @@
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const sheetsManager = require('../../utils/sheets');
+const { hasRequiredRole } = require('../../utils/helpers');
+
+module.exports = {
+	cooldown: 5,
+	data: new SlashCommandBuilder()
+		.setName('verifyuser')
+		.setDescription('Verify a new member and assign roles')
+		.addUserOption(option =>
+			option
+				.setName('user')
+				.setDescription('The user to verify')
+				.setRequired(true),
+		)
+		.addStringOption(option =>
+			option
+				.setName('name')
+				.setDescription('Full name of the user')
+				.setRequired(true),
+		)
+		.addBooleanOption(option =>
+			option
+				.setName('irl_connection')
+				.setDescription('Does this person have an IRL connection to an existing member?')
+				.setRequired(true),
+		)
+		.addStringOption(option =>
+			option
+				.setName('grade')
+				.setDescription('Grade level')
+				.setRequired(false),
+		)
+		.addStringOption(option =>
+			option
+				.setName('school')
+				.setDescription('School name')
+				.setRequired(false),
+		)
+		.addStringOption(option =>
+			option
+				.setName('region')
+				.setDescription('Region')
+				.setRequired(false),
+		)
+		.addStringOption(option =>
+			option
+				.setName('robotics_team')
+				.setDescription('Robotics team number or name')
+				.setRequired(false),
+		)
+		.addStringOption(option =>
+			option
+				.setName('invite_source')
+				.setDescription('How they found out about NT')
+				.setRequired(false),
+		)
+		.setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles),
+	async execute(interaction) {
+		// Check if user has required role or permissions
+		const allowedRoles = ['Verification Team', 'EC', 'Leadership'];
+		const member = interaction.member;
+
+		if (!hasRequiredRole(member, allowedRoles) && !member.permissions.has(PermissionFlagsBits.Administrator)) {
+			return interaction.reply({
+				content: '❌ You do not have permission to use this command. Only Verification Team members, EC, Leadership, and Administrators can verify users.',
+				ephemeral: true,
+			});
+		}
+
+		await interaction.deferReply();
+
+		try {
+			const targetUser = interaction.options.getUser('user');
+			const targetMember = await interaction.guild.members.fetch(targetUser.id);
+			
+			// Get all options
+			const userData = {
+				discordId: targetUser.id,
+				username: targetUser.username,
+				name: interaction.options.getString('name'),
+				grade: interaction.options.getString('grade'),
+				school: interaction.options.getString('school'),
+				region: interaction.options.getString('region'),
+				roboticsTeam: interaction.options.getString('robotics_team'),
+				inviteSource: interaction.options.getString('invite_source'),
+				hasIRLConnection: interaction.options.getBoolean('irl_connection') ?? false,
+				verifiedBy: interaction.user.username,
+			};
+
+			// Check for missing optional fields
+			const missingFields = [];
+			if (!userData.grade) missingFields.push('grade');
+			if (!userData.school) missingFields.push('school');
+			if (!userData.region) missingFields.push('region');
+			if (!userData.roboticsTeam) missingFields.push('robotics team');
+			if (!userData.inviteSource) missingFields.push('invite source');
+
+			let warningMessage = '';
+			if (missingFields.length > 0) {
+				warningMessage = `\n⚠️ **Warning:** Missing optional fields: ${missingFields.join(', ')}`;
+			}
+
+			// Check if user has unverified role
+			const unverifiedRole = interaction.guild.roles.cache.find(role =>
+				role.name.toLowerCase().includes('unverified') || role.name.toLowerCase().includes('pending'),
+			);
+
+			// Log verification to Google Sheets
+			const sheetLogged = await sheetsManager.verifyUser(userData);
+			if (!sheetLogged) {
+				await interaction.editReply({
+					content: '❌ Failed to log this verification to Google Sheets. Please try again later or contact an administrator.',
+				});
+				return;
+			}
+
+			// Assign roles and update nickname
+			const ntUnverifiedRole = interaction.guild.roles.cache.find(role =>
+				role.name.toLowerCase().includes('nextech unverified'),
+			);
+			const combinedUnverifiedRole = interaction.guild.roles.cache.find(role =>
+				role.name.toLowerCase().includes('combined unverified'),
+			);
+			const ntMemberRole = interaction.guild.roles.cache.find(role =>
+				role.name.toLowerCase().includes('nt member'),
+			);
+			const serverMemberRole = interaction.guild.roles.cache.find(role =>
+				role.name.toLowerCase().includes('server member'),
+			);
+			const onlineMemberRole = interaction.guild.roles.cache.find(role =>
+				role.name.toLowerCase().includes('online member'),
+			);
+
+			const hadNtUnverified = ntUnverifiedRole && targetMember.roles.cache.has(ntUnverifiedRole.id);
+			const hadCombinedUnverified = combinedUnverifiedRole && targetMember.roles.cache.has(combinedUnverifiedRole.id);
+
+			const rolesToRemove = [];
+			if (hadNtUnverified) rolesToRemove.push(ntUnverifiedRole);
+			if (hadCombinedUnverified) rolesToRemove.push(combinedUnverifiedRole);
+
+			if (rolesToRemove.length > 0) {
+				await targetMember.roles.remove(rolesToRemove.filter(Boolean));
+			}
+
+			if (ntMemberRole) {
+				await targetMember.roles.add(ntMemberRole);
+			}
+
+			if (hadCombinedUnverified) {
+				if (userData.hasIRLConnection && serverMemberRole) {
+					await targetMember.roles.add(serverMemberRole);
+				}
+				else if (!userData.hasIRLConnection && onlineMemberRole) {
+					await targetMember.roles.add(onlineMemberRole);
+				}
+			}
+
+			try {
+				await targetMember.setNickname(`[NT] ${userData.name}`);
+			}
+			catch (nicknameError) {
+				console.error('Failed to update nickname:', nicknameError);
+			}
+
+			// Create success embed
+			const embed = new EmbedBuilder()
+				.setColor(0x57F287)
+				.setTitle('✅ User Verified Successfully')
+				.setDescription(`${targetUser} has been verified and logged in the system.`)
+				.addFields(
+					{ name: 'Name', value: userData.name, inline: true },
+					{ name: 'Grade', value: userData.grade || 'N/A', inline: true },
+					{ name: 'School', value: userData.school || 'N/A', inline: true },
+					{ name: 'Region', value: userData.region || 'N/A', inline: true },
+					{ name: 'Robotics Team', value: userData.roboticsTeam || 'N/A', inline: true },
+					{ name: 'Invite Source', value: userData.inviteSource || 'N/A', inline: true },
+					{ name: 'IRL Connection', value: userData.hasIRLConnection ? 'Yes' : 'No', inline: true },
+					{ name: 'Verified By', value: interaction.user.username, inline: true },
+				)
+				.setTimestamp()
+				.setFooter({ text: 'Project NexTech Verification' });
+
+			if (warningMessage) {
+				embed.setDescription(embed.data.description + warningMessage);
+			}
+
+			await interaction.editReply({ embeds: [embed] });
+
+			// Send welcome DM to the verified user
+			try {
+				const welcomeMessage = `Welcome to **Project NexTech**, ${userData.name}! 🎉\n\n` +
+					`You have been successfully verified by ${interaction.user.username}.\n\n` +
+					`**Getting Started:**\n` +
+					`• Check out the pinned messages in department channels\n` +
+					`• Use \`/events\` to see upcoming events\n` +
+					`• Use \`/hours\` to track your volunteer hours\n` +
+					`• Use \`/contact\` to find department leadership\n\n` +
+					`If you have any questions, feel free to reach out to the leadership team!`;
+
+				await targetUser.send(welcomeMessage);
+			}
+			catch (dmError) {
+				console.error('Could not send DM to verified user:', dmError);
+				await interaction.followUp({
+					content: '⚠️ User was verified but could not be sent a welcome DM. They may have DMs disabled.',
+				});
+			}
+
+		}
+		catch (error) {
+			console.error('Error in /verifyuser command:', error);
+			await interaction.editReply({
+				content: '❌ An error occurred while verifying the user. Please try again later.',
+			});
+		}
+	},
+};
