@@ -1,7 +1,11 @@
 require('dotenv').config();
-const { REST, Routes } = require('discord.js');
+const https = require('https');
 const fs = require('node:fs');
 const path = require('node:path');
+const dns = require('dns');
+
+// Force IPv4 to avoid potential network issues
+dns.setDefaultResultOrder('ipv4first');
 
 // Load from environment variables or config file
 let clientId, token, guildId, roleIds;
@@ -37,139 +41,217 @@ for (const folder of commandFolders) {
 	// Grab the SlashCommandBuilder#toJSON() output of each command's data for deployment
 	for (const file of commandFiles) {
 		const filePath = path.join(commandsPath, file);
-		const command = require(filePath);
-		if ('data' in command && 'execute' in command) {
-			commands.push(command.data.toJSON());
+		try {
+			console.log(`Loading command: ${file}`);
+			const command = require(filePath);
+			if ('data' in command && 'execute' in command) {
+				commands.push(command.data.toJSON());
+				console.log(`✓ Loaded command: ${command.data.name}`);
+			}
+			else {
+				console.log(`[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`);
+			}
 		}
-		else {
-			console.log(`[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`);
+		catch (error) {
+			console.log(`[ERROR] Failed to load command at ${filePath}:`, error.message);
 		}
 	}
 }
 
-// Construct and prepare an instance of the REST module
-const rest = new REST().setToken(token);
+// Make raw HTTPS request to Discord API (bypasses discord.js hanging issues)
+function makeDiscordRequest(method, apiPath, body) {
+	return new Promise((resolve, reject) => {
+		const bodyString = body !== null ? JSON.stringify(body) : '';
+		
+		const headers = {
+			'Authorization': `Bot ${token}`,
+			'User-Agent': 'DiscordBot (Project-NexTech, 1.0.0)',
+		};
 
-// and deploy your commands!
+		// Only set Content-Type and Content-Length if we have a body
+		if (body !== null) {
+			headers['Content-Type'] = 'application/json';
+			headers['Content-Length'] = Buffer.byteLength(bodyString);
+		}
+
+		const options = {
+			hostname: 'discord.com',
+			port: 443,
+			path: `/api/v10${apiPath}`,
+			method: method,
+			headers: headers,
+			family: 4, // Force IPv4
+			timeout: 15000,
+		};
+
+		const req = https.request(options, (res) => {
+			let data = '';
+			res.on('data', (chunk) => { data += chunk; });
+			res.on('end', () => {
+				if (res.statusCode >= 200 && res.statusCode < 300) {
+					// Silent success for individual operations (too verbose otherwise)
+					try {
+						resolve(data ? JSON.parse(data) : {});
+					}
+					catch {
+						resolve(data || {});
+					}
+				}
+				else {
+					let errorData;
+					try {
+						errorData = JSON.parse(data);
+					}
+					catch {
+						errorData = { message: data };
+					}
+					const error = new Error(errorData.message || `HTTP ${res.statusCode}`);
+					error.status = res.statusCode;
+					error.retry_after = errorData.retry_after;
+					reject(error);
+				}
+			});
+		});
+
+		req.on('error', (error) => reject(error));
+		req.on('timeout', () => {
+			req.destroy();
+			reject(new Error('Request timed out after 15s'));
+		});
+
+		if (bodyString) {
+			req.write(bodyString);
+		}
+		req.end();
+	});
+}
+
+// Helper to compare if two commands are different
+function commandsAreDifferent(existing, local) {
+	// Compare relevant fields that would require an update
+	const existingData = JSON.stringify({
+		name: existing.name,
+		description: existing.description,
+		options: existing.options || [],
+		default_member_permissions: existing.default_member_permissions,
+	});
+	const localData = JSON.stringify({
+		name: local.name,
+		description: local.description,
+		options: local.options || [],
+		default_member_permissions: local.default_member_permissions,
+	});
+	return existingData !== localData;
+}
+
+// Deploy commands intelligently
 (async () => {
 	try {
-		console.log(`Started refreshing ${commands.length} application (/) commands.`);
+		console.log(`Started refreshing ${commands.length} application (/) commands.\n`);
 
-		// // Delete all existing global commands to prevent duplicates
-		// console.log('Deleting old global commands...');
-		// await rest.put(Routes.applicationCommands(clientId), { body: [] });
-
-		// // Delete all existing guild commands to prevent duplicates
-		// console.log('Deleting old guild commands...');
-		// await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] });
-
-		// Deploy new commands to the guild
-		console.log('Deploying new commands to guild...');
-		const data = await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
-
-		console.log(`Successfully reloaded ${data.length} application (/) commands.`);
-
-		// Set up command permissions using role IDs
-		console.log('Setting up command permissions...');
+		const commandPath = `/applications/${clientId}/guilds/${guildId}/commands`;
 		
-		// Check if role IDs are configured
-		if (!roleIds || !roleIds.ntMember) {
-			console.warn('⚠️ Role IDs not configured in config.json. Skipping permission setup.');
-			console.log('To enable automatic permissions, add role IDs to your config.json');
-			return;
+		// Step 1: Get existing commands from Discord
+		console.log('Fetching existing commands from Discord...');
+		const existingCommands = await makeDiscordRequest('GET', commandPath, null);
+		console.log(`Found ${existingCommands.length} existing commands\n`);
+
+		let created = 0;
+		let updated = 0;
+		let skipped = 0;
+		const errors = [];
+
+		// Step 2: Process each local command
+		for (const localCommand of commands) {
+			const existingCommand = existingCommands.find(cmd => cmd.name === localCommand.name);
+
+			if (!existingCommand) {
+				// Command doesn't exist - CREATE it
+				try {
+					console.log(`Creating new command: ${localCommand.name}`);
+					await makeDiscordRequest('POST', commandPath, localCommand);
+					created++;
+				}
+				catch (error) {
+					errors.push({ command: localCommand.name, action: 'create', error: error.message });
+					console.error(`✗ Failed to create ${localCommand.name}: ${error.message}`);
+				}
+			}
+			else if (commandsAreDifferent(existingCommand, localCommand)) {
+				// Command exists but is different - UPDATE it
+				try {
+					console.log(`Updating command: ${localCommand.name}`);
+					await makeDiscordRequest('PATCH', `${commandPath}/${existingCommand.id}`, localCommand);
+					updated++;
+				}
+				catch (error) {
+					errors.push({ command: localCommand.name, action: 'update', error: error.message });
+					console.error(`✗ Failed to update ${localCommand.name}: ${error.message}`);
+				}
+			}
+			else {
+				// Command exists and is identical - SKIP
+				console.log(`✓ Command unchanged: ${localCommand.name}`);
+				skipped++;
+			}
+
+			// Small delay to avoid overwhelming the API
+			await new Promise(resolve => setTimeout(resolve, 100));
 		}
+
+		// Step 3: Optionally delete commands that no longer exist locally
+		const localCommandNames = commands.map(cmd => cmd.name);
+		const commandsToDelete = existingCommands.filter(cmd => !localCommandNames.includes(cmd.name));
 		
-		console.log('Using role IDs from config:');
-		console.log(`  NT Member: ${roleIds.ntMember}`);
-		console.log(`  NT Unverified: ${roleIds.ntUnverified || 'Not configured'}`);
-		console.log(`  Combined Unverified: ${roleIds.combinedUnverified || 'Not configured'}`);
-		console.log(`  EC: ${roleIds.ecRole || 'Not configured'}`);
-		
-		// Get deployed commands using REST API (no bot login required)
-		const deployedCommands = await rest.get(Routes.applicationGuildCommands(clientId, guildId));
-		
-		for (const command of deployedCommands) {
-			const permissions = [];
-			
-			// Default: Disable for @everyone, enable for NT Member
-			permissions.push({
-				id: guildId, // @everyone
-				type: 1, // Role
-				permission: false,
+		if (commandsToDelete.length > 0) {
+			console.log(`\nFound ${commandsToDelete.length} command(s) to delete:`);
+			for (const cmd of commandsToDelete) {
+				try {
+					console.log(`Deleting removed command: ${cmd.name}`);
+					await makeDiscordRequest('DELETE', `${commandPath}/${cmd.id}`, null);
+				}
+				catch (error) {
+					errors.push({ command: cmd.name, action: 'delete', error: error.message });
+					console.error(`✗ Failed to delete ${cmd.name}: ${error.message}`);
+				}
+			}
+		}
+
+		// Summary
+		console.log('\n' + '='.repeat(50));
+		console.log('✅ Deployment Complete!');
+		console.log('='.repeat(50));
+		console.log(`Created: ${created}`);
+		console.log(`Updated: ${updated}`);
+		console.log(`Unchanged: ${skipped}`);
+		console.log(`Deleted: ${commandsToDelete.length}`);
+		if (errors.length > 0) {
+			console.log(`Errors: ${errors.length}`);
+		}
+		console.log('='.repeat(50));
+
+		if (errors.length > 0) {
+			console.log('\n⚠️  Some commands failed:');
+			errors.forEach(err => {
+				console.log(`  - ${err.command} (${err.action}): ${err.error}`);
 			});
-			
-			if (roleIds.ntMember) {
-				permissions.push({
-					id: roleIds.ntMember,
-					type: 1,
-					permission: true,
-				});
-			}
-			
-			// Override for /verify command
-			if (command.name === 'verify') {
-				// Only allow unverified roles
-				if (roleIds.ntUnverified) {
-					permissions.push({
-						id: roleIds.ntUnverified,
-						type: 1,
-						permission: true,
-					});
-				}
-				if (roleIds.combinedUnverified) {
-					permissions.push({
-						id: roleIds.combinedUnverified,
-						type: 1,
-						permission: true,
-					});
-				}
-				// Disable NT Member for verify command
-				if (roleIds.ntMember) {
-					permissions.push({
-						id: roleIds.ntMember,
-						type: 1,
-						permission: false,
-					});
-				}
-			}
-			
-			// Override for admin commands (commands in /commands/admin/)
-			const adminCommands = ['verifyuser', 'syncroles'];
-			if (adminCommands.includes(command.name)) {
-				// Only allow EC role and Administrators
-				if (roleIds.ecRole) {
-					permissions.push({
-						id: roleIds.ecRole,
-						type: 1,
-						permission: true,
-					});
-				}
-				// Disable NT Member for admin commands
-				if (roleIds.ntMember) {
-					permissions.push({
-						id: roleIds.ntMember,
-						type: 1,
-						permission: false,
-					});
-				}
-			}
-			
-			try {
-				await rest.put(
-					Routes.applicationCommandPermissions(clientId, guildId, command.id),
-					{ permissions }
-				);
-				console.log(`✅ Set permissions for /${command.name}`);
-			}
-			catch (error) {
-				console.error(`❌ Failed to set permissions for /${command.name}:`, error.message);
-			}
 		}
-		
-		console.log('✅ Command permissions setup complete!');
 	}
 	catch (error) {
-		// And of course, make sure you catch and log any errors!
-		console.error(error);
+		console.error('\n❌ Error deploying commands:');
+		
+		// Handle rate limiting specifically
+		if (error.status === 429) {
+			const retryAfter = error.retry_after || 'unknown';
+			console.error('\n🚫 RATE LIMITED!');
+			console.error(`You've hit Discord's daily limit for command creates (200 per day).`);
+			console.error(`Retry after: ${retryAfter} seconds (${Math.ceil(retryAfter / 60)} minutes)\n`);
+			console.error('💡 Note: PATCH updates to existing commands do NOT count against this limit!');
+			console.error('This script now only creates/deletes commands when necessary.');
+		}
+		else {
+			console.error(`Message: ${error.message}`);
+		}
+		process.exit(1);
 	}
 })();
