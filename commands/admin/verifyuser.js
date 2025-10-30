@@ -3,7 +3,7 @@ const sheetsManager = require('../../utils/sheets');
 const { hasRequiredRole } = require('../../utils/helpers');
 
 module.exports = {
-	cooldown: 5,
+	cooldown: 10,
 	data: new SlashCommandBuilder()
 		.setName('verifyuser')
 		.setDescription('Verify a new member and assign roles')
@@ -29,7 +29,19 @@ module.exports = {
 			option
 				.setName('grade')
 				.setDescription('Grade level')
-				.setRequired(false),
+				.setRequired(false)
+				.addChoices(
+					{ name: '7th grade', value: '7th grade' },
+					{ name: '8th grade', value: '8th grade' },
+					{ name: '9th grade', value: '9th grade' },
+					{ name: '10th grade', value: '10th grade' },
+					{ name: '11th grade', value: '11th grade' },
+					{ name: '12th grade', value: '12th grade' },
+					{ name: '1st year college', value: '1st year college' },
+					{ name: '2nd year college', value: '2nd year college' },
+					{ name: '3rd year college', value: '3rd year college' },
+					{ name: 'Other college', value: 'Other college' },
+				),
 		)
 		.addStringOption(option =>
 			option
@@ -41,7 +53,8 @@ module.exports = {
 			option
 				.setName('region')
 				.setDescription('Region')
-				.setRequired(false),
+				.setRequired(false)
+				.setAutocomplete(true),
 		)
 		.addStringOption(option =>
 			option
@@ -56,6 +69,45 @@ module.exports = {
 				.setRequired(false),
 		)
 		.setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles),
+	async autocomplete(interaction) {
+		try {
+			const focusedValue = interaction.options.getFocused().toLowerCase();
+			
+			// Get all region roles that match the pattern: "Region Name (CC #)"
+			// Example: "San Diego (US 1)"
+			const regionPattern = /^.+\s\([A-Z]{2}\s\d+\)$/i; // Case insensitive
+			
+			const allRegionRoles = interaction.guild.roles.cache
+				.filter(role => regionPattern.test(role.name))
+				.map(role => ({
+					name: role.name,
+					value: role.name,
+				}))
+				.sort((a, b) => a.name.localeCompare(b.name)); // Sort alphabetically
+			
+			// Filter based on user input
+			const filteredRoles = focusedValue 
+				? allRegionRoles.filter(choice => choice.name.toLowerCase().includes(focusedValue))
+				: allRegionRoles;
+			
+			// Limit to 25 choices
+			const choices = filteredRoles.slice(0, 25);
+
+			// Always return an array, even if empty
+			await interaction.respond(choices.length > 0 ? choices : [{ name: 'No regions found', value: 'none' }]);
+		}
+		catch (error) {
+			console.error('Error in verifyuser autocomplete:', error);
+			console.error(error.stack);
+			// Return empty response on error
+			try {
+				await interaction.respond([]);
+			}
+			catch (respondError) {
+				console.error('Failed to respond to autocomplete:', respondError);
+			}
+		}
+	},
 	async execute(interaction) {
 		// Check if user has required role or permissions
 		const allowedRoles = ['Verification Team', 'EC', 'Leadership'];
@@ -74,6 +126,42 @@ module.exports = {
 			const targetUser = interaction.options.getUser('user');
 			const targetMember = await interaction.guild.members.fetch(targetUser.id);
 			
+			// Get region string and validate
+			const regionName = interaction.options.getString('region');
+			let regionRole = null;
+			let countryRole = null;
+			
+			if (regionName && regionName !== 'none') {
+				// Validate region format: "Region Name (CC #)"
+				const regionPattern = /^.+\s\(([A-Z]{2})\s\d+\)$/i;
+				const match = regionName.match(regionPattern);
+				
+				if (!match) {
+					return interaction.editReply({
+						content: '❌ Invalid region format. Please select a region from the autocomplete list.',
+						ephemeral: true,
+					});
+				}
+				
+				// Find the region role
+				regionRole = interaction.guild.roles.cache.find(role => role.name === regionName);
+				
+				if (!regionRole) {
+					return interaction.editReply({
+						content: '❌ Region role not found. Please select a valid region from the autocomplete list.',
+						ephemeral: true,
+					});
+				}
+				
+				// Extract country code and find country role
+				const countryCode = match[1]; // e.g., "US"
+				// Country role format: "Country Name (CC)"
+				countryRole = interaction.guild.roles.cache.find(role => {
+					const countryPattern = new RegExp(`^.+\\s\\(${countryCode}\\)$`);
+					return countryPattern.test(role.name) && !role.name.includes(countryCode + ' ');
+				});
+			}
+			
 			// Get all options
 			const userData = {
 				discordId: targetUser.id,
@@ -81,7 +169,7 @@ module.exports = {
 				name: interaction.options.getString('name'),
 				grade: interaction.options.getString('grade'),
 				school: interaction.options.getString('school'),
-				region: interaction.options.getString('region'),
+				region: regionRole ? regionRole.name : null,
 				roboticsTeam: interaction.options.getString('robotics_team'),
 				inviteSource: interaction.options.getString('invite_source'),
 				hasIRLConnection: interaction.options.getBoolean('irl_connection') ?? false,
@@ -131,6 +219,9 @@ module.exports = {
 			const onlineMemberRole = interaction.guild.roles.cache.find(role =>
 				role.name.toLowerCase().includes('online member'),
 			);
+			const ntUnenrolledRole = interaction.guild.roles.cache.find(role =>
+				role.name.toLowerCase().includes('nt unenrolled'),
+			);
 
 			const hadNtUnverified = ntUnverifiedRole && targetMember.roles.cache.has(ntUnverifiedRole.id);
 			const hadCombinedUnverified = combinedUnverifiedRole && targetMember.roles.cache.has(combinedUnverifiedRole.id);
@@ -156,8 +247,23 @@ module.exports = {
 				}
 			}
 
+			// Add NT Unenrolled role
+			if (ntUnenrolledRole) {
+				await targetMember.roles.add(ntUnenrolledRole);
+			}
+
+			// Add region and country roles if selected
+			if (regionRole) {
+				await targetMember.roles.add(regionRole);
+			}
+			if (countryRole) {
+				await targetMember.roles.add(countryRole);
+			}
+
 			try {
-				await targetMember.setNickname(`[NT] ${userData.name}`);
+				// Extract first name only (everything before the first space)
+				const firstName = userData.name.split(' ')[0];
+				await targetMember.setNickname(`[ɴᴛ] ${firstName}`);
 			}
 			catch (nicknameError) {
 				console.error('Failed to update nickname:', nicknameError);
@@ -190,9 +296,8 @@ module.exports = {
 			// Send welcome DM to the verified user
 			try {
 				const welcomeMessage = `Welcome to **Project NexTech**, ${userData.name}! 🎉\n\n` +
-					`You have been successfully verified by ${interaction.user.username}.\n\n` +
 					`**Getting Started:**\n` +
-					`• Check out the pinned messages in department channels\n` +
+					`• Get roles in <#1423136582571135067> \n` +
 					`• Use \`/events\` to see upcoming events\n` +
 					`• Use \`/hours\` to track your volunteer hours\n` +
 					`• Use \`/contact\` to find department leadership\n\n` +

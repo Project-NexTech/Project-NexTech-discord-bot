@@ -19,6 +19,14 @@ module.exports = {
 				return; // User didn't just get an unverified role
 			}
 
+			// Don't send welcome if user already has NT Member role (they were verified via /verifyuser command)
+			const ntMemberRole = newMember.guild.roles.cache.find(role =>
+				role.name.toLowerCase().includes('nt member'),
+			);
+			if (ntMemberRole && newMember.roles.cache.has(ntMemberRole.id)) {
+				return; // User already verified, don't send welcome
+			}
+
 			// Make sure we have a channel to ping in
 			if (!verifyPingChannelId) {
 				console.error('VERIFY_PING_CHANNEL_ID not set in environment variables');

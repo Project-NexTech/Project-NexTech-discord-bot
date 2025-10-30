@@ -3,7 +3,7 @@ const sheetsManager = require('../../utils/sheets');
 const { createEventsEmbed, getUserDepartments } = require('../../utils/helpers');
 
 module.exports = {
-	cooldown: 5,
+	cooldown: 1,
 	data: new SlashCommandBuilder()
 		.setName('events')
 		.setDescription('View upcoming events')
@@ -11,13 +11,13 @@ module.exports = {
 			option
 				.setName('department')
 				.setDescription('Filter by department (defaults to your departments)')
-				.setRequired(false)
+				.setRequired(true)
 				.addChoices(
-					{ name: 'Education', value: 'Education' },
-					{ name: 'Outreach', value: 'Outreach' },
-					{ name: 'Marketing', value: 'Marketing' },
-					{ name: 'Technology', value: 'Technology' },
-					{ name: 'Finance', value: 'Finance' },
+					{ name: 'Engineering', value: 'Engineering' },
+					{ name: 'Mentoring', value: 'Mentoring' },
+					{ name: 'Programming', value: 'Programming' },
+					{ name: 'Physics/Math', value: 'Physics/Math' },
+					{ name: 'Natural Sciences', value: 'Natural Sciences' },
 					{ name: 'All', value: 'all' },
 				),
 		),

@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
 
 module.exports = {
-	cooldown: 60,
+	cooldown: 10,
 	data: new SlashCommandBuilder()
 		.setName('verify')
 		.setDescription('Verify yourself to gain access to the server'),
