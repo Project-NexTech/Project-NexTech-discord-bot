@@ -269,11 +269,29 @@ module.exports = {
 				console.error('Failed to update nickname:', nicknameError);
 			}
 
-			// Create success embed
+			// Send welcome DM to the verified user first
+			let dmSent = false;
+			try {
+				const welcomeMessage = `Welcome to **Project NexTech**, ${userData.name}! 🎉\n\n` +
+					`**Getting Started:**\n` +
+					`• Get roles in <#1423136582571135067> \n` +
+					`• Use \`/events\` to see upcoming events\n` +
+					`• Use \`/hours\` to track your volunteer hours\n` +
+					`• Use \`/contact\` to find department leadership\n\n` +
+					`If you have any questions, feel free to reach out to the leadership team!`;
+
+				await targetUser.send(welcomeMessage);
+				dmSent = true;
+			}
+			catch (dmError) {
+				console.error('Could not send DM to verified user:', dmError);
+			}
+
+			// Create success embed (always shown regardless of DM status)
 			const embed = new EmbedBuilder()
 				.setColor(0x57F287)
 				.setTitle('✅ User Verified Successfully')
-				.setDescription(`${targetUser} has been verified and logged in the system.`)
+				.setDescription(`${targetUser} has been verified and logged in the system.${!dmSent ? '\n\n⚠️ **Could not send welcome DM** - User may have DMs disabled.' : ''}`)
 				.addFields(
 					{ name: 'Name', value: userData.name, inline: true },
 					{ name: 'Grade', value: userData.grade || 'N/A', inline: true },
@@ -292,25 +310,6 @@ module.exports = {
 			}
 
 			await interaction.editReply({ embeds: [embed] });
-
-			// Send welcome DM to the verified user
-			try {
-				const welcomeMessage = `Welcome to **Project NexTech**, ${userData.name}! 🎉\n\n` +
-					`**Getting Started:**\n` +
-					`• Get roles in <#1423136582571135067> \n` +
-					`• Use \`/events\` to see upcoming events\n` +
-					`• Use \`/hours\` to track your volunteer hours\n` +
-					`• Use \`/contact\` to find department leadership\n\n` +
-					`If you have any questions, feel free to reach out to the leadership team!`;
-
-				await targetUser.send(welcomeMessage);
-			}
-			catch (dmError) {
-				console.error('Could not send DM to verified user:', dmError);
-				await interaction.followUp({
-					content: '⚠️ User was verified but could not be sent a welcome DM. They may have DMs disabled.',
-				});
-			}
 
 		}
 		catch (error) {
