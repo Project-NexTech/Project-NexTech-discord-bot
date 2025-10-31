@@ -1,5 +1,6 @@
 const { Events } = require('discord.js');
 const sheetsManager = require('../utils/sheets');
+const { startCalendarSync } = require('../utils/calendarSync');
 
 module.exports = {
 	name: Events.ClientReady,
@@ -14,6 +15,15 @@ module.exports = {
 		}
 		catch (error) {
 			console.error('❌ Failed to initialize Google Sheets:', error.message);
+		}
+
+		// Start automatic calendar synchronization
+		try {
+			startCalendarSync(client, 5); // Check every 5 minutes
+			console.log('✅ Calendar synchronization started');
+		}
+		catch (error) {
+			console.error('❌ Failed to start calendar sync:', error.message);
 		}
 	},
 };

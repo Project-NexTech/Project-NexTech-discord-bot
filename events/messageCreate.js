@@ -7,7 +7,7 @@ module.exports = {
 		
 		// Ignore messages from bots
 		if (message.author.bot) {
-			console.log('[MessageCreate] Bot message');
+			console.log('[MessageCreate] Ignoring bot message');
 			return;
 		}
 
