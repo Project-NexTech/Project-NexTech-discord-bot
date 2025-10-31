@@ -411,6 +411,119 @@ class SheetsManager {
 			throw error;
 		}
 	}
+
+	/**
+	 * Check verification sheet for users who left the server and mark their rows
+	 * @param {Guild} guild - Discord guild to check members against
+	 * @returns {Promise<Object>} Result with counts of marked users
+	 */
+	async checkLeftUsers(guild) {
+		try {
+			const spreadsheetId = process.env.VERIFICATION_SHEET_ID;
+			const sheetName = "'#nextech-verify'";
+			
+			// Fetch all data from the verification sheet
+			const response = await this.sheets.spreadsheets.values.get({
+				spreadsheetId,
+				range: `${sheetName}!A:J`,
+			});
+
+			const rows = response.data.values;
+			if (!rows || rows.length <= 1) {
+				console.log('[CheckLeftUsers] No data to check');
+				return { checked: 0, marked: 0 };
+			}
+
+			// Fetch all guild members
+			await guild.members.fetch();
+			
+			const batchUpdates = [];
+			let markedCount = 0;
+
+			// Start from row 2 (index 1) to skip header
+			for (let i = 1; i < rows.length; i++) {
+				const row = rows[i];
+				const discordId = row[0]; // Column A
+				
+				if (!discordId) continue;
+
+				// Check if user is still in the server
+				const member = guild.members.cache.get(discordId);
+				
+				if (!member) {
+					// User left - mark the row with red background
+					const rowNumber = i + 1; // Sheet rows are 1-indexed
+					
+					batchUpdates.push({
+						repeatCell: {
+							range: {
+								sheetId: await this.getSheetId(spreadsheetId, '#nextech-verify'),
+								startRowIndex: i,
+								endRowIndex: i + 1,
+								startColumnIndex: 0,
+								endColumnIndex: 10, // Columns A-J
+							},
+							cell: {
+								userEnteredFormat: {
+									backgroundColor: {
+										red: 0.956,
+										green: 0.8,
+										blue: 0.8,
+									},
+								},
+							},
+							fields: 'userEnteredFormat.backgroundColor',
+						},
+					});
+					
+					markedCount++;
+					console.log(`[CheckLeftUsers] Marked row ${rowNumber} - User ${discordId} left the server`);
+				}
+			}
+
+			// Apply all formatting updates in a single batch
+			if (batchUpdates.length > 0) {
+				await this.sheets.spreadsheets.batchUpdate({
+					spreadsheetId,
+					resource: {
+						requests: batchUpdates,
+					},
+				});
+			}
+
+			console.log(`[CheckLeftUsers] Checked ${rows.length - 1} users, marked ${markedCount} as left`);
+			return { checked: rows.length - 1, marked: markedCount };
+		}
+		catch (error) {
+			console.error('[CheckLeftUsers] Error:', error);
+			throw error;
+		}
+	}
+
+	/**
+	 * Get the sheet ID (gid) for a specific sheet name within a spreadsheet
+	 * @param {string} spreadsheetId - The spreadsheet ID
+	 * @param {string} sheetName - The name of the sheet/tab
+	 * @returns {Promise<number>} The sheet ID
+	 */
+	async getSheetId(spreadsheetId, sheetName) {
+		try {
+			const response = await this.sheets.spreadsheets.get({
+				spreadsheetId,
+			});
+
+			const sheet = response.data.sheets.find(s => s.properties.title === sheetName);
+			if (!sheet) {
+				throw new Error(`Sheet "${sheetName}" not found`);
+			}
+
+			return sheet.properties.sheetId;
+		}
+		catch (error) {
+			console.error(`[GetSheetId] Error finding sheet "${sheetName}":`, error);
+			throw error;
+		}
+	}
 }
 
 module.exports = new SheetsManager();
