@@ -23,19 +23,11 @@ if (!commandName || args.includes('--help') || args.includes('-h')) {
 	process.exit(commandName ? 0 : 1);
 }
 
-// Load from environment variables or config file
-let clientId, token, guildId;
-if (process.env.CLIENT_ID && process.env.DISCORD_TOKEN && process.env.GUILD_ID) {
-	clientId = process.env.CLIENT_ID;
-	token = process.env.DISCORD_TOKEN;
-	guildId = process.env.GUILD_ID;
-}
-else {
-	const config = require('./config.json');
-	clientId = config.clientId;
-	token = config.token;
-	guildId = config.guildId;
-}
+// Load from environment variables
+require('dotenv').config();
+const clientId = process.env.CLIENT_ID;
+const token = process.env.DISCORD_TOKEN;
+const guildId = process.env.GUILD_ID;
 
 // Make raw HTTPS request to Discord API
 function makeDiscordRequest(method, apiPath, body) {

@@ -1,17 +1,9 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
 
-// Load config
-let token, guildId;
-if (process.env.DISCORD_TOKEN && process.env.GUILD_ID) {
-	token = process.env.DISCORD_TOKEN;
-	guildId = process.env.GUILD_ID;
-}
-else {
-	const config = require('./config.json');
-	token = config.token;
-	guildId = config.guildId;
-}
+// Load config from environment variables
+const token = process.env.DISCORD_TOKEN;
+const guildId = process.env.GUILD_ID;
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 

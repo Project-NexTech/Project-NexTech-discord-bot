@@ -3,8 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { Client, Collection, GatewayIntentBits, Partials } = require('discord.js');
 
-// Load token from environment variable or config file
-const token = process.env.DISCORD_TOKEN || require('./config.json').token;
+// Load token from environment variable
+const token = process.env.DISCORD_TOKEN;
 
 const client = new Client({ 
 	intents: [

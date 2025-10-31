@@ -31,27 +31,17 @@ else {
 	console.log('Deploying as GUILD commands (instant updates)\n');
 }
 
-// Load from environment variables or config file
-let clientId, token, guildId, roleIds;
-if (process.env.CLIENT_ID && process.env.DISCORD_TOKEN && process.env.GUILD_ID) {
-	clientId = process.env.CLIENT_ID;
-	token = process.env.DISCORD_TOKEN;
-	guildId = process.env.GUILD_ID;
-	// Role IDs from environment variables
-	roleIds = {
-		ntMember: process.env.NT_MEMBER_ROLE_ID,
-		ntUnverified: process.env.NT_UNVERIFIED_ROLE_ID,
-		combinedUnverified: process.env.COMBINED_UNVERIFIED_ROLE_ID,
-		ecRole: process.env.EC_ROLE_ID,
-	};
-}
-else {
-	const config = require('./config.json');
-	clientId = config.clientId;
-	token = config.token;
-	guildId = config.guildId;
-	roleIds = config.roleIds;
-}
+// Load from environment variables
+require('dotenv').config();
+const clientId = process.env.CLIENT_ID;
+const token = process.env.DISCORD_TOKEN;
+const guildId = process.env.GUILD_ID;
+const roleIds = {
+	ntMember: process.env.NT_MEMBER_ROLE_ID,
+	ntUnverified: process.env.NT_UNVERIFIED_ROLE_ID,
+	combinedUnverified: process.env.COMBINED_UNVERIFIED_ROLE_ID,
+	ecRole: process.env.EC_ROLE_ID,
+};
 
 const commands = [];
 // Grab all the command folders from the commands directory you created earlier

@@ -1,6 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
 const { hasRequiredRole } = require('../../utils/helpers');
-const config = require('../../config.json');
 
 module.exports = {
 	cooldown: 300, // 5 minute cooldown to prevent spam
@@ -41,7 +40,7 @@ module.exports = {
 
 		try {
 			// Get the NT Member role
-			const ntMemberRoleId = config.roleIds.ntMember;
+			const ntMemberRoleId = process.env.NT_MEMBER_ROLE_ID;
 			const ntMemberRole = interaction.guild.roles.cache.get(ntMemberRoleId);
 
 			if (!ntMemberRole) {
