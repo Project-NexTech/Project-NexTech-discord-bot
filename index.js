@@ -1,6 +1,7 @@
-require('dotenv').config();
-const fs = require('node:fs');
 const path = require('node:path');
+// Load .env from the script's directory, not the current working directory
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+const fs = require('node:fs');
 const { Client, Collection, GatewayIntentBits, Partials } = require('discord.js');
 
 // Load token from environment variable
