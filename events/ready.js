@@ -41,7 +41,7 @@ module.exports = {
 				checkLeftUsers();
 
 				// Then run every 6 hours (21600000 ms)
-				setInterval(checkLeftUsers, 6 * 60 * 60 * 1000);
+				setInterval(checkLeftUsers, 2 * 60 * 60 * 1000);
 				console.log('✅ Left users checker started (runs every 6 hours)');
 			}
 			catch (error) {

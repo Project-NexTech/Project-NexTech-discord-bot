@@ -274,7 +274,8 @@ module.exports = {
 			try {
 				const welcomeMessage = `Welcome to **Project NexTech**, ${userData.name}! 🎉\n\n` +
 					`**Getting Started:**\n` +
-					`• Get roles in <#1423136582571135067> \n` +
+					`• Use \`/verify\` to gain access to the rest of the server. **You must to this first before doing anything else.**\n` +
+					`• Get roles in <#1231777272906649670> \n` +
 					`• Use \`/events\` to see upcoming events\n` +
 					`• Use \`/hours\` to track your volunteer hours\n` +
 					`• Use \`/contact\` to find department leadership\n\n` +
@@ -310,6 +311,26 @@ module.exports = {
 			}
 
 			await interaction.editReply({ embeds: [embed] });
+
+			// Send welcome message to NT chat channel
+			try {
+				const ntChatChannelId = process.env.NT_CHAT_CHANNEL_ID;
+				if (ntChatChannelId) {
+					const ntChatChannel = await interaction.client.channels.fetch(ntChatChannelId);
+					if (ntChatChannel) {
+						// TODO: Replace this placeholder message with the actual welcome message
+						const welcomeChannelMessage = `Welcome to Project NexTech, ${targetUser}! Please check <#1231776603126890671> for updates every few days and get your roles in <#1231777272906649670>. You can select any departments/subjects you are interested in. <#1386576733674668052> has useful information to get started. New members should go to one of our online info sessions. We will announce in <#1231776603126890671> when we will have one.`;
+						await ntChatChannel.send(welcomeChannelMessage);
+					} else {
+						console.error('NT_CHAT_CHANNEL_ID channel not found');
+					}
+				} else {
+					console.error('NT_CHAT_CHANNEL_ID not set in environment variables');
+				}
+			} catch (channelError) {
+				console.error('Could not send welcome message to NT chat channel:', channelError);
+				// Don't fail the verification if channel message fails
+			}
 
 		}
 		catch (error) {

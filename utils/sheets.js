@@ -380,14 +380,87 @@ class SheetsManager {
 			const volunteersRows = volunteersResponse.data.values || [];
 
 			// Create a map of name -> Discord ID
+			// Use normalized names (lowercase, trimmed) as keys for case-insensitive matching
 			const nameToDiscordId = {};
-			volunteersRows.slice(1).forEach(row => {
+			const normalizedToOriginal = {}; // Track original names for debugging
+			
+			volunteersRows.slice(1).forEach((row, index) => {
 				const name = row[0];
 				const discordId = row[4];
+				
 				if (name && discordId) {
-					nameToDiscordId[name.trim()] = discordId.trim();
+					// Trim and normalize the name, also normalize apostrophes
+					const trimmedName = name.trim();
+					const normalizedName = trimmedName.toLowerCase();
+					
+					nameToDiscordId[normalizedName] = discordId.trim();
+					normalizedToOriginal[normalizedName] = trimmedName;
+					
+					// Also store variants with different apostrophe types for better matching
+					if (normalizedName.includes("'") || normalizedName.includes("'")) {
+						const withRegularApostrophe = normalizedName.replace(/['']/g, "'");
+						const withSmartApostrophe = normalizedName.replace(/'/g, "'");
+						
+						if (withRegularApostrophe !== normalizedName) {
+							nameToDiscordId[withRegularApostrophe] = discordId.trim();
+							normalizedToOriginal[withRegularApostrophe] = trimmedName;
+						}
+						if (withSmartApostrophe !== normalizedName) {
+							nameToDiscordId[withSmartApostrophe] = discordId.trim();
+							normalizedToOriginal[withSmartApostrophe] = trimmedName;
+						}
+					}
 				}
 			});
+
+			// Helper function for fuzzy name matching
+			const findBestMatch = (searchName) => {
+				const normalized = searchName.toLowerCase().trim();
+				
+				// 1. Try exact match first
+				if (nameToDiscordId[normalized]) {
+					return nameToDiscordId[normalized];
+				}
+				
+				// 2. Try matching with different apostrophe types
+				const withRegularApostrophe = normalized.replace(/['']/g, "'");
+				const withSmartApostrophe = normalized.replace(/'/g, "'");
+				
+				if (nameToDiscordId[withRegularApostrophe]) {
+					return nameToDiscordId[withRegularApostrophe];
+				}
+				if (nameToDiscordId[withSmartApostrophe]) {
+					return nameToDiscordId[withSmartApostrophe];
+				}
+				
+				// 3. Try matching where volunteer name contains the membership name
+				// (e.g., "Mark Blair" matches "Mark Nelson Blair")
+				const containsMatch = Object.keys(nameToDiscordId).find(key => {
+					const keyParts = key.split(' ').filter(p => p.length > 0);
+					const searchParts = normalized.split(' ').filter(p => p.length > 0);
+					
+					// Check if all parts of search name appear in key (in order)
+					let keyIndex = 0;
+					for (const searchPart of searchParts) {
+						let found = false;
+						for (let i = keyIndex; i < keyParts.length; i++) {
+							if (keyParts[i] === searchPart) {
+								keyIndex = i + 1;
+								found = true;
+								break;
+							}
+						}
+						if (!found) return false;
+					}
+					return true;
+				});
+				
+				if (containsMatch) {
+					return nameToDiscordId[containsMatch];
+				}
+				
+				return null;
+			};
 
 			// Build membership data array
 			const membershipData = membershipRows
@@ -395,7 +468,7 @@ class SheetsManager {
 				.map(row => {
 					const name = row[0].trim();
 					const status = row[1] ? row[1].trim() : null;
-					const discordId = nameToDiscordId[name];
+					const discordId = findBestMatch(name);
 
 					return {
 						name,
@@ -421,8 +494,9 @@ class SheetsManager {
 		try {
 			const spreadsheetId = process.env.VERIFICATION_SHEET_ID;
 			const sheetName = "'#nextech-verify'";
+			const sheetId = await this.getSheetId(spreadsheetId, '#nextech-verify');
 			
-			// Fetch all data from the verification sheet
+			// Fetch all data from the verification sheet (values only)
 			const response = await this.sheets.spreadsheets.values.get({
 				spreadsheetId,
 				range: `${sheetName}!A:J`,
@@ -434,11 +508,21 @@ class SheetsManager {
 				return { checked: 0, marked: 0 };
 			}
 
+			// Fetch cell formatting to check existing backgrounds
+			const sheetData = await this.sheets.spreadsheets.get({
+				spreadsheetId,
+				ranges: [`${sheetName}!A:J`],
+				includeGridData: true,
+			});
+
+			const gridData = sheetData.data.sheets[0].data[0].rowData;
+
 			// Fetch all guild members
 			await guild.members.fetch();
 			
 			const batchUpdates = [];
 			let markedCount = 0;
+			let skippedCount = 0;
 
 			// Start from row 2 (index 1) to skip header
 			for (let i = 1; i < rows.length; i++) {
@@ -451,13 +535,29 @@ class SheetsManager {
 				const member = guild.members.cache.get(discordId);
 				
 				if (!member) {
+					// Check if row already has red background
+					const rowData = gridData[i];
+					if (rowData && rowData.values && rowData.values[0]) {
+						const cellFormat = rowData.values[0].effectiveFormat;
+						const bgColor = cellFormat?.backgroundColor;
+						
+						// Check if already marked red (allow small tolerance for floating point)
+						if (bgColor && 
+							Math.abs(bgColor.red - 0.956) < 0.01 && 
+							Math.abs(bgColor.green - 0.8) < 0.01 && 
+							Math.abs(bgColor.blue - 0.8) < 0.01) {
+							skippedCount++;
+							continue; // Skip this row, already marked
+						}
+					}
+
 					// User left - mark the row with red background
 					const rowNumber = i + 1; // Sheet rows are 1-indexed
 					
 					batchUpdates.push({
 						repeatCell: {
 							range: {
-								sheetId: await this.getSheetId(spreadsheetId, '#nextech-verify'),
+								sheetId: sheetId,
 								startRowIndex: i,
 								endRowIndex: i + 1,
 								startColumnIndex: 0,
@@ -491,8 +591,8 @@ class SheetsManager {
 				});
 			}
 
-			console.log(`[CheckLeftUsers] Checked ${rows.length - 1} users, marked ${markedCount} as left`);
-			return { checked: rows.length - 1, marked: markedCount };
+			console.log(`[CheckLeftUsers] Checked ${rows.length - 1} users, marked ${markedCount} as left, skipped ${skippedCount} already marked`);
+			return { checked: rows.length - 1, marked: markedCount, skipped: skippedCount };
 		}
 		catch (error) {
 			console.error('[CheckLeftUsers] Error:', error);
