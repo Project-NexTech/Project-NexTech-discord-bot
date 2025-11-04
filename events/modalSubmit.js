@@ -1,4 +1,4 @@
-const { Events, EmbedBuilder } = require('discord.js');
+const { Events, EmbedBuilder, MessageFlags } = require('discord.js');
 
 module.exports = {
 	name: Events.InteractionCreate,
@@ -6,7 +6,7 @@ module.exports = {
 		if (!interaction.isModalSubmit()) return;
 
 		if (interaction.customId === 'verificationModal') {
-			await interaction.deferReply({ ephemeral: true });
+			await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
 			try {
 				const fullName = interaction.fields.getTextInputValue('fullName');
@@ -26,7 +26,7 @@ module.exports = {
 					console.error('VERIFICATION_CHANNEL_ID not set in environment variables');
 					return interaction.editReply({
 						content: '❌ Verification system is not properly configured. Please contact an administrator.',
-						ephemeral: true,
+						flags: MessageFlags.Ephemeral,
 					});
 				}
 
@@ -35,7 +35,7 @@ module.exports = {
 					console.error('Could not find verification channel');
 					return interaction.editReply({
 						content: '❌ Could not access verification channel. Please contact an administrator.',
-						ephemeral: true,
+						flags: MessageFlags.Ephemeral,
 					});
 				}
 
@@ -80,7 +80,7 @@ module.exports = {
 				console.error('Error processing verification submission:', error);
 				await interaction.editReply({
 					content: '❌ An error occurred while submitting your verification. Please try again later or contact an administrator.',
-					ephemeral: true,
+					flags: MessageFlags.Ephemeral,
 				});
 			}
 		}

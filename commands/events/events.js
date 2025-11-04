@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const sheetsManager = require('../../utils/sheets');
 const { createEventsEmbed, getUserDepartments } = require('../../utils/helpers');
 
@@ -68,7 +68,7 @@ module.exports = {
 			console.error('Error in /events command:', error);
 			await interaction.editReply({
 				content: '❌ An error occurred while fetching events. Please try again later.',
-				ephemeral: true,
+				flags: MessageFlags.Ephemeral,
 			});
 		}
 	},

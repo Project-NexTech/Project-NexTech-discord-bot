@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags } = require('discord.js');
 const sheetsManager = require('../../utils/sheets');
 const { hasRequiredRole } = require('../../utils/helpers');
 
@@ -116,7 +116,7 @@ module.exports = {
 		if (!hasRequiredRole(member, allowedRoles) && !member.permissions.has(PermissionFlagsBits.Administrator)) {
 			return interaction.reply({
 				content: '❌ You do not have permission to use this command. Only Verification Team members, EC, Leadership, and Administrators can verify users.',
-				ephemeral: true,
+				flags: MessageFlags.Ephemeral,
 			});
 		}
 
@@ -139,7 +139,7 @@ module.exports = {
 				if (!match) {
 					return interaction.editReply({
 						content: '❌ Invalid region format. Please select a region from the autocomplete list.',
-						ephemeral: true,
+						flags: MessageFlags.Ephemeral,
 					});
 				}
 				
@@ -149,7 +149,7 @@ module.exports = {
 				if (!regionRole) {
 					return interaction.editReply({
 						content: '❌ Region role not found. Please select a valid region from the autocomplete list.',
-						ephemeral: true,
+						flags: MessageFlags.Ephemeral,
 					});
 				}
 				

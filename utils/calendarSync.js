@@ -77,10 +77,10 @@ async function fetchCalendarEvents(calendarUrl) {
  */
 async function createDiscordEvent(guild, calendarEvent) {
 	try {
-		const stageChannelId = process.env.INFO_SESSION_VOICE_CHANNEL_ID; // Using the correct env variable
+		const stageChannelId = process.env.INFO_SESSION_CHANNEL_ID_ID; // Using the correct env variable
 		
 		if (!stageChannelId) {
-			console.error('[CalendarSync] INFO_SESSION_VOICE_CHANNEL_ID not found in environment variables');
+			console.error('[CalendarSync] INFO_SESSION_CHANNEL_ID_ID not found in environment variables');
 			return null;
 		}
 		

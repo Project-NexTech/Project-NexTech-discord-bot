@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags } = require('discord.js');
 const { hasRequiredRole } = require('../../utils/helpers');
 
 module.exports = {
@@ -22,7 +22,7 @@ module.exports = {
 		if (!hasRequiredRole(member, allowedRoles)) {
 			return interaction.reply({
 				content: '❌ You do not have permission to use this command. Only EC members can broadcast messages.',
-				ephemeral: true,
+				flags: MessageFlags.Ephemeral,
 			});
 		}
 
@@ -32,11 +32,11 @@ module.exports = {
 		if (!confirm) {
 			return interaction.reply({
 				content: '❌ You must confirm to send the broadcast. Set the `confirm` option to `True`.',
-				ephemeral: true,
+				flags: MessageFlags.Ephemeral,
 			});
 		}
 
-		await interaction.deferReply({ ephemeral: true });
+		await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
 		try {
 			// Get the NT Member role
@@ -119,7 +119,7 @@ module.exports = {
 				});
 			}
 
-			await interaction.followUp({ embeds: [reportEmbed], ephemeral: true });
+			await interaction.followUp({ embeds: [reportEmbed], flags: MessageFlags.Ephemeral });
 
 		} catch (error) {
 			console.error('[Broadcast] Error:', error);

@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const sheetsManager = require('../../utils/sheets');
 const { createLeaderboardEmbed } = require('../../utils/helpers');
 
@@ -27,7 +27,7 @@ module.exports = {
 			if (!leaderboard || leaderboard.length === 0) {
 				return interaction.editReply({
 					content: '❌ No leaderboard data available.',
-					ephemeral: true,
+					flags: MessageFlags.Ephemeral,
 				});
 			}
 
@@ -40,7 +40,7 @@ module.exports = {
 			console.error('Error in /leaderboard command:', error);
 			await interaction.editReply({
 				content: '❌ An error occurred while fetching leaderboard data. Please try again later.',
-				ephemeral: true,
+				flags: MessageFlags.Ephemeral,
 			});
 		}
 	},

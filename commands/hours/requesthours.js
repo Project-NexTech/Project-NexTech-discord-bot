@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 
 module.exports = {
 	cooldown: 10,
@@ -35,7 +35,7 @@ module.exports = {
 			console.error('Error in /requesthours command:', error);
 			await interaction.reply({
 				content: '❌ An error occurred while getting the hours request form.',
-				ephemeral: true,
+				flags: MessageFlags.Ephemeral,
 			});
 		}
 	},

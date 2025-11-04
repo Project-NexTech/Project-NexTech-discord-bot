@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags } = require('discord.js');
 const sheetsManager = require('../../utils/sheets');
 const { hasRequiredRole } = require('../../utils/helpers');
 
@@ -16,7 +16,7 @@ module.exports = {
 		if (!hasRequiredRole(member, allowedRoles) && !member.permissions.has(PermissionFlagsBits.Administrator)) {
 			return interaction.reply({
 				content: '❌ You do not have permission to use this command. Only EC and Administrators can sync roles.',
-				ephemeral: true,
+				flags: MessageFlags.Ephemeral,
 			});
 		}
 
@@ -37,7 +37,7 @@ module.exports = {
 		if (!ntEnrolledRole || !ntUnenrolledRole) {
 			return interaction.editReply({
 				content: '❌ Could not find NT Enrolled or NT Unenrolled roles. Please check role names.',
-				ephemeral: true,
+				flags: MessageFlags.Ephemeral,
 			});
 		}			// Fetch membership data
 			const membershipData = await sheetsManager.getMembershipStatus();
@@ -45,7 +45,7 @@ module.exports = {
 			if (!membershipData || membershipData.length === 0) {
 				return interaction.editReply({
 					content: '❌ No membership data found.',
-					ephemeral: true,
+					flags: MessageFlags.Ephemeral,
 				});
 			}
 

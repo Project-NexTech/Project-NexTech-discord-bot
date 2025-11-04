@@ -3,17 +3,14 @@ const { Events, EmbedBuilder } = require('discord.js');
 module.exports = {
 	name: Events.MessageCreate,
 	async execute(message) {
-		console.log(`[MessageCreate] Received message from ${message.author.tag} in ${message.guild ? 'guild' : 'DM'}`);
-		
 		// Ignore messages from bots
 		if (message.author.bot) {
-			console.log('[MessageCreate] Ignoring bot message');
 			return;
 		}
 
 		// Check if the message is a DM (not in a guild)
 		if (!message.guild) {
-			console.log('[MessageCreate] Processing DM...');
+			console.log(`[MessageCreate] Received DM from ${message.author.tag}`);
 			try {
 				const verificationChannelId = process.env.VERIFICATION_CHANNEL_ID;
 				const verificationTeamRoleId = process.env.VERIFICATION_TEAM_ROLE_ID;

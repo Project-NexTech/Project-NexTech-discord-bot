@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, ActionRowBuilder, StringSelectMenuBuilder, ComponentType } = require('discord.js');
+const { SlashCommandBuilder, ActionRowBuilder, StringSelectMenuBuilder, ComponentType, MessageFlags } = require('discord.js');
 const sheetsManager = require('../../utils/sheets');
 const { createContactsEmbed } = require('../../utils/helpers');
 
@@ -20,7 +20,7 @@ module.exports = {
 			if (validEvents.length === 0) {
 				return interaction.editReply({
 					content: '❌ No upcoming events found with assignable contacts.',
-					ephemeral: true,
+					flags: MessageFlags.Ephemeral,
 				});
 			}
 
@@ -53,7 +53,7 @@ module.exports = {
 				if (selectInteraction.user.id !== interaction.user.id) {
 					return selectInteraction.reply({
 						content: '❌ This menu is not for you!',
-						ephemeral: true,
+						flags: MessageFlags.Ephemeral,
 					});
 				}
 
@@ -67,7 +67,7 @@ module.exports = {
 					return selectInteraction.update({
 						content: `❌ No contacts found for ${event.department} department.`,
 						components: [],
-						ephemeral: true,
+						flags: MessageFlags.Ephemeral,
 					});
 				}
 
@@ -101,7 +101,7 @@ module.exports = {
 			console.error('Error in /contactforevent command:', error);
 			await interaction.editReply({
 				content: '❌ An error occurred while fetching contact information. Please try again later.',
-				ephemeral: true,
+				flags: MessageFlags.Ephemeral,
 			});
 		}
 	},

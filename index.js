@@ -51,3 +51,22 @@ for (const file of eventFiles) {
 }
 
 client.login(token);
+
+// Windows-specific workaround for SIGINT (Ctrl+C) handling
+if (process.platform === "win32") {
+	const rl = require("readline").createInterface({
+		input: process.stdin,
+		output: process.stdout,
+	});
+
+	rl.on("SIGINT", function () {
+		process.emit("SIGINT");
+	});
+}
+
+// Graceful shutdown handler
+process.on("SIGINT", function () {
+	console.log("\nGracefully shutting down...");
+	client.destroy();
+	process.exit(0);
+});

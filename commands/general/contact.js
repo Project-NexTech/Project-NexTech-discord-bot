@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const sheetsManager = require('../../utils/sheets');
 const { createContactsEmbed } = require('../../utils/helpers');
 
@@ -36,7 +36,7 @@ module.exports = {
 			if (!contacts || contacts.length === 0) {
 				return interaction.editReply({
 					content: '❌ No contacts found for this department.',
-					ephemeral: true,
+					flags: MessageFlags.Ephemeral,
 				});
 			}
 
@@ -49,7 +49,7 @@ module.exports = {
 			console.error('Error in /contact command:', error);
 			await interaction.editReply({
 				content: '❌ An error occurred while fetching contact information. Please try again later.',
-				ephemeral: true,
+				flags: MessageFlags.Ephemeral,
 			});
 		}
 	},
