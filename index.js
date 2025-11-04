@@ -65,8 +65,22 @@ if (process.platform === "win32") {
 }
 
 // Graceful shutdown handler
-process.on("SIGINT", function () {
+process.on("SIGINT", async function () {
 	console.log("\nGracefully shutting down...");
-	client.destroy();
+	try {
+		// Set bot status to invisible before destroying
+		await client.user?.setStatus('invisible');
+		console.log("Bot status set to invisible");
+		
+		// Wait a moment for the status update to propagate
+		await new Promise(resolve => setTimeout(resolve, 500));
+		
+		// Destroy the client connection
+		client.destroy();
+		console.log("Client destroyed successfully");
+	} catch (error) {
+		console.error("Error during shutdown:", error);
+		process.exit(1);
+	}
 	process.exit(0);
 });

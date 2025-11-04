@@ -14,7 +14,7 @@ module.exports = {
 				.setTitle('📝 Request Volunteer Hours')
 				.setDescription('Click the button below to fill out the volunteer hours request form.')
 				.addFields(
-					{ name: 'What to Include', value: '• Event name and date\n• Number of hours worked\n• Brief description of your work' },
+					{ name: 'What to Include', value: '• Event name and date\n• Number of hours \n• Brief description of what you did' },
 				)
 				.setTimestamp()
 				.setFooter({ text: 'Project NexTech Hours Tracker' });
