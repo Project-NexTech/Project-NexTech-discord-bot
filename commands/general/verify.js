@@ -1,7 +1,7 @@
-const { SlashCommandBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+const { SlashCommandBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, MessageFlags } = require('discord.js');
 
 module.exports = {
-	cooldown: 60,
+	cooldown: 10,
 	data: new SlashCommandBuilder()
 		.setName('verify')
 		.setDescription('Verify yourself to gain access to the server'),
@@ -18,7 +18,7 @@ module.exports = {
 			if (!hasUnverifiedRole) {
 				return interaction.reply({
 					content: '❌ You do not have permission to use this command. This command is only for members with the NT Unverified or Combined Unverified role.',
-					ephemeral: true,
+					flags: MessageFlags.Ephemeral,
 				});
 			}
 
@@ -77,7 +77,7 @@ module.exports = {
 			console.error('Error in /verify command:', error);
 			await interaction.reply({
 				content: '❌ An error occurred while opening the verification form.',
-				ephemeral: true,
+				flags: MessageFlags.Ephemeral,
 			});
 		}
 	},

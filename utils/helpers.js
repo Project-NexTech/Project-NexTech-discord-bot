@@ -84,7 +84,7 @@ function createHoursEmbed(volunteerData, user) {
 function createEventsEmbed(events, department = null) {
 	const { EmbedBuilder } = require('discord.js');
 	
-	const title = department 
+	const title = department && department !== 'all'
 		? `📅 Upcoming Events for ${department}`
 		: '📅 All Upcoming Events';
 
@@ -99,24 +99,86 @@ function createEventsEmbed(events, department = null) {
 		return embed;
 	}
 
-	const eventsText = events
-		.map((event, idx) => {
-			let text = `${idx + 1}. **${event.department}** - ${event.dayOfWeek}\n`;
-			text += `   📅 ${event.date}${event.time ? ` at ${event.time}` : ''}\n`;
-			text += `   📍 ${event.location}\n`;
-			text += `   🕒 ${event.hours} hours\n`;
-			text += `   🌎 ${event.region}`;
-			if (event.comment) {
-				text += `\n   💬 ${event.comment}`;
-			}
-			if (event.additionalNote) {
-				text += `\n   📝 ${event.additionalNote}`;
-			}
-			return text;
-		})
-		.join('\n\n');
+	// Create fields for each event (following the sheet's row order)
+	events.forEach((event, idx) => {
+		// Title: Date and Day of Week (with Undecided highlight)
+		// Use separator and bold for emphasis
+		let eventTitle = `📅 **${event.date}** - ${event.dayOfWeek}\n`;
+		if (event.isUndecided) {
+			eventTitle = `⚠️ **${event.date}** - ${event.dayOfWeek} **(UNDECIDED)**\n`;
+		}
 
-	embed.setDescription(eventsText);
+		// Build field value in the same order as the sheet
+		let fieldValue = '';
+		
+		// Comment
+		if (event.comment) {
+			fieldValue += `💬 **Comment:** ${event.comment}\n\n`;
+		}
+		
+		// Status
+		if (event.status) {
+			// Highlight "NO SIGNUPS" status with bold and warning emoji
+			if (event.status === 'NO SIGNUPS') {
+				fieldValue += `📊 **Status: ⚠️ NO SIGNUPS ⚠️**\n\n`;
+			} else {
+				fieldValue += `📊 **Status:** ${event.status}\n\n`;
+			}
+		}
+		
+		// Course Selection
+		if (event.courseSelection) {
+			fieldValue += `📚 **Course:** ${event.courseSelection}\n\n`;
+		}
+		
+		// Region
+		if (event.region) {
+			fieldValue += `🌎 **Region:** ${event.region}\n\n`;
+		}
+		
+		// Depart Time
+		if (event.departTime) {
+			fieldValue += `🕐 **Time:** ${event.departTime}\n\n`;
+		}
+		
+		// Credit (hours)
+		if (event.credit) {
+			fieldValue += `⏱️ **Hours:** ${event.credit}\n\n`;
+		}
+		
+		// Location
+		if (event.location) {
+			// Add double newline only if there's a note coming after
+			fieldValue += `📍 **Location:** ${event.location}${event.note ? '\n\n' : '\n'}`;
+		}
+		
+		// Note
+		if (event.note) {
+			fieldValue += `📝 **Note:** ${event.note}\n\n`;
+		}
+
+		// Remove trailing newlines
+		fieldValue = fieldValue.trim();
+
+		if (!fieldValue) {
+			fieldValue = 'No additional details available.';
+		}
+
+		embed.addFields({
+			name: eventTitle,
+			value: fieldValue,
+			inline: false,
+		});
+
+		// Add a separator field between events (except after the last one)
+		if (idx < events.length - 1) {
+			embed.addFields({
+				name: '\u200B',
+				value: '─────────────────────────────────',
+				inline: false,
+			});
+		}
+	});
 
 	return embed;
 }
@@ -124,35 +186,36 @@ function createEventsEmbed(events, department = null) {
 /**
  * Create an embed for contacts display
  * @param {Array} contacts - Array of contact objects
- * @param {string|null} department - Department filter
+ * @param {string} department - Department name
  * @returns {EmbedBuilder} Discord embed
  */
-function createContactsEmbed(contacts, department = null) {
+function createContactsEmbed(contacts, department) {
 	const { EmbedBuilder } = require('discord.js');
-	
-	const title = department 
-		? `📞 Contacts for ${department}`
-		: '📞 Leadership Contacts';
 
 	const embed = new EmbedBuilder()
 		.setColor(0xFEE75C)
-		.setTitle(title)
+		.setTitle(`${department} Leadership Contacts`)
 		.setTimestamp()
 		.setFooter({ text: 'Project NexTech Leadership' });
 
 	if (contacts.length === 0) {
-		embed.setDescription('No contacts found.');
+		embed.setDescription('No contacts found for this department.');
 		return embed;
 	}
 
-	const contactsText = contacts
-		.map(contact =>
-			`**${contact.name}** - ${contact.role}\n` +
-			`<@${contact.discordId}> • ${contact.email || 'No email listed'}`,
-		)
-		.join('\n\n');
-
-	embed.setDescription(contactsText);
+	// Create fields for each contact
+	contacts.forEach(contact => {
+		const fieldValue = 
+			`**Role:** ${contact.role}\n` +
+			`**Discord:** <@${contact.discordId}> (${contact.discordUsername})\n` +
+			`**Email:** ${contact.email}`;
+		
+		embed.addFields({
+			name: `👤 ${contact.name}`,
+			value: fieldValue,
+			inline: false,
+		});
+	});
 
 	return embed;
 }

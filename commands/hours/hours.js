@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const sheetsManager = require('../../utils/sheets');
 const { createHoursEmbed } = require('../../utils/helpers');
 
@@ -37,7 +37,7 @@ module.exports = {
 			if (!volunteerData) {
 				return interaction.editReply({
 					content: `❌ No volunteer data found for ${targetUser.username}. They may not be registered in the system yet.`,
-					ephemeral: true,
+					flags: MessageFlags.Ephemeral,
 				});
 			}
 
@@ -50,7 +50,7 @@ module.exports = {
 			console.error('Error in /hours command:', error);
 			await interaction.editReply({
 				content: '❌ An error occurred while fetching hours data. Please try again later.',
-				ephemeral: true,
+				flags: MessageFlags.Ephemeral,
 			});
 		}
 	},

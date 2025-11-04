@@ -93,9 +93,9 @@ class SheetsManager {
 
 	/**
 	 * Get upcoming events, optionally filtered by department
-	 * Note: Can also be retrieved from Google Calendar
 	 * Sheet is organized by COLUMNS (each column = one event date)
-	 * @param {string|null} department - Department filter
+	 * Department mapping: 1=Engineering, 2=Mentoring, 3=Programming, 4=Physics/Math, 5=Natural Sciences
+	 * @param {string|null} department - Department filter ('all' for all departments)
 	 * @returns {Promise<Array>} List of upcoming events
 	 */
 	async getUpcomingEvents(department = null) {
@@ -117,9 +117,17 @@ class SheetsManager {
 			const now = new Date();
 			now.setHours(0, 0, 0, 0); // Set to start of day for comparison
 
+			// Department mapping from course number prefix
+			const deptMapping = {
+				'1': 'Engineering',
+				'2': 'Mentoring',
+				'3': 'Programming',
+				'4': 'Physics/Math',
+				'5': 'Natural Sciences',
+			};
+
 			// Each column represents an event
 			const events = [];
-			// Determine the maximum number of columns present within the first 11 rows
 			const maxCols = Math.max(
 				...rows.slice(0, 11).map(r => Array.isArray(r) ? r.length : 0),
 			);
@@ -136,22 +144,51 @@ class SheetsManager {
 
 				const safe = (rowIndex) => (rows[rowIndex] && rows[rowIndex][col]) ? String(rows[rowIndex][col]) : '';
 
+				// Extract course selection and determine department
+				const courseSelection = safe(4);
+				let eventDepartment = 'Other';
+				let isUndecided = false;
+
+				if (courseSelection) {
+					if (courseSelection === 'Undecided') {
+						eventDepartment = 'Undecided';
+						isUndecided = true;
+					}
+					else if (courseSelection !== 'Other') {
+						// Extract first character before the period (e.g., "[1.1]" -> "1")
+						const match = courseSelection.match(/^\[?(\d)/);
+						if (match && deptMapping[match[1]]) {
+							eventDepartment = deptMapping[match[1]];
+						}
+					}
+				}
+
+				// Filter logic
+				if (department && department !== 'all') {
+					// If specific department selected, exclude Undecided and Other
+					if (isUndecided || eventDepartment === 'Other') {
+						continue;
+					}
+					if (eventDepartment !== department) {
+						continue;
+					}
+				}
+
 				const event = {
 					date: dateCell,
 					dayOfWeek: safe(1),
 					comment: safe(2),
-					numSignups: safe(3),
-					department: safe(4),
+					status: safe(3),
+					courseSelection: courseSelection,
+					department: eventDepartment,
+					isUndecided: isUndecided,
 					region: safe(5),
-					time: safe(7), // Row 8: Time (row index 7)
-					hours: safe(8), // Row 9: Hours (row index 8)
-					location: safe(9), // Row 10: Location (row index 9)
-					additionalNote: safe(10), // Row 11: Additional note (row index 10)
+					supervisor: safe(6),
+					departTime: safe(7),
+					credit: safe(8),
+					location: safe(9),
+					note: safe(10),
 				};
-
-				if (department && event.department.toLowerCase() !== department.toLowerCase()) {
-					continue;
-				}
 
 				events.push(event);
 			}
@@ -165,60 +202,39 @@ class SheetsManager {
 	}
 
 	/**
-	 * Get contact information for a department or event
-	 * @param {string|null} department - Department name
-	 * @param {string|null} eventName - Event name
-	 * @returns {Promise<Array>} List of contacts
+	 * Get contact information for a department
+	 * Sheet format: A=Name, B=Department, C=Email, D=Discord Username, E=Discord User ID, F=Role/Note
+	 * @param {string} department - Department name to filter by
+	 * @returns {Promise<Array>} List of contacts matching the department
 	 */
-	async getContacts(department = null, eventName = null) {
+	async getContacts(department) {
 		try {
 			const spreadsheetId = process.env.LEADERSHIP_SHEET_ID;
 
 			const response = await this.sheets.spreadsheets.values.get({
 				spreadsheetId,
-				range: 'Leadership!A:E',
+				range: 'Sheet1!A:F', // Adjust sheet name if needed
 			});
 
 			const rows = response.data.values || [];
-			let contacts = rows.slice(1).map(row => ({
-				name: row[0],
-				role: row[1],
-				department: row[2],
-				discordId: row[3],
-				email: row[4],
-			}));
-
-			if (department) {
-				contacts = contacts.filter(contact =>
-					contact.department.toLowerCase() === department.toLowerCase(),
-				);
-			}
-
-			if (eventName) {
-				// For event-specific contacts, you might have a separate mapping
-				// This is a placeholder - adjust based on your data structure
-				const eventContactsResponse = await this.sheets.spreadsheets.values.get({
-					spreadsheetId: process.env.EVENTS_SHEET_ID,
-					range: 'EventContacts!A:D',
-				});
-
-				const eventRows = eventContactsResponse.data.values || [];
-				// Discord IDs
-				const eventContactIds = eventRows
-					.filter(row => row[0].toLowerCase() === eventName.toLowerCase())
-					.map(row => row[3]);
-
-				contacts = contacts.filter(contact =>
-					eventContactIds.includes(contact.discordId),
-				);
-			}
+			
+			// Skip header row and map data
+			const contacts = rows.slice(1)
+				.filter(row => row[1] && row[1].trim() === department) // Filter by department (Column B)
+				.map(row => ({
+					name: row[0] || 'Unknown',
+					department: row[1] || '',
+					email: row[2] || 'No email listed',
+					discordUsername: row[3] || 'Unknown',
+					discordId: row[4] || '',
+					role: row[5] || 'Member',
+				}));
 
 			return contacts;
 		}
 		catch (error) {
-			console.error('Error fetching contacts - Leadership feature not yet implemented:', error.message);
-			// Return empty array with special flag to indicate feature is not ready
-			return { notImplemented: true, contacts: [] };
+			console.error('Error fetching contacts:', error.message);
+			throw error;
 		}
 	}
 
@@ -332,6 +348,179 @@ class SheetsManager {
 		}
 		catch (error) {
 			console.error('Error fetching leaderboard:', error);
+			throw error;
+		}
+	}
+
+	/**
+	 * Get membership status from Google Sheets
+	 * Fetches data from "Membership Status" sheet (Column A=Name, B=Status)
+	 * and matches with Discord IDs from "Limited Data" sheet (Column A=Name, E=Discord ID)
+	 * @returns {Promise<Array>} Array of membership status objects
+	 */
+	async getMembershipStatus() {
+		try {
+			const eventsSheetId = process.env.EVENTS_SHEET_ID;
+			const volunteersSheetId = process.env.VOLUNTEERS_SHEET_ID;
+
+			// Fetch membership status (skip rows 1-9 which are headers)
+			const membershipResponse = await this.sheets.spreadsheets.values.get({
+				spreadsheetId: eventsSheetId,
+				range: '\'Membership Status\'!A10:B',
+			});
+
+			const membershipRows = membershipResponse.data.values || [];
+
+			// Fetch Discord IDs from volunteers sheet
+			const volunteersResponse = await this.sheets.spreadsheets.values.get({
+				spreadsheetId: volunteersSheetId,
+				range: '\'Limited Data\'!A:E',
+			});
+
+			const volunteersRows = volunteersResponse.data.values || [];
+
+			// Create a map of name -> Discord ID
+			const nameToDiscordId = {};
+			volunteersRows.slice(1).forEach(row => {
+				const name = row[0];
+				const discordId = row[4];
+				if (name && discordId) {
+					nameToDiscordId[name.trim()] = discordId.trim();
+				}
+			});
+
+			// Build membership data array
+			const membershipData = membershipRows
+				.filter(row => row[0]) // Filter out empty rows
+				.map(row => {
+					const name = row[0].trim();
+					const status = row[1] ? row[1].trim() : null;
+					const discordId = nameToDiscordId[name];
+
+					return {
+						name,
+						status,
+						discordId,
+					};
+				});
+
+			return membershipData;
+		}
+		catch (error) {
+			console.error('Error fetching membership status:', error);
+			throw error;
+		}
+	}
+
+	/**
+	 * Check verification sheet for users who left the server and mark their rows
+	 * @param {Guild} guild - Discord guild to check members against
+	 * @returns {Promise<Object>} Result with counts of marked users
+	 */
+	async checkLeftUsers(guild) {
+		try {
+			const spreadsheetId = process.env.VERIFICATION_SHEET_ID;
+			const sheetName = "'#nextech-verify'";
+			
+			// Fetch all data from the verification sheet
+			const response = await this.sheets.spreadsheets.values.get({
+				spreadsheetId,
+				range: `${sheetName}!A:J`,
+			});
+
+			const rows = response.data.values;
+			if (!rows || rows.length <= 1) {
+				console.log('[CheckLeftUsers] No data to check');
+				return { checked: 0, marked: 0 };
+			}
+
+			// Fetch all guild members
+			await guild.members.fetch();
+			
+			const batchUpdates = [];
+			let markedCount = 0;
+
+			// Start from row 2 (index 1) to skip header
+			for (let i = 1; i < rows.length; i++) {
+				const row = rows[i];
+				const discordId = row[0]; // Column A
+				
+				if (!discordId) continue;
+
+				// Check if user is still in the server
+				const member = guild.members.cache.get(discordId);
+				
+				if (!member) {
+					// User left - mark the row with red background
+					const rowNumber = i + 1; // Sheet rows are 1-indexed
+					
+					batchUpdates.push({
+						repeatCell: {
+							range: {
+								sheetId: await this.getSheetId(spreadsheetId, '#nextech-verify'),
+								startRowIndex: i,
+								endRowIndex: i + 1,
+								startColumnIndex: 0,
+								endColumnIndex: 10, // Columns A-J
+							},
+							cell: {
+								userEnteredFormat: {
+									backgroundColor: {
+										red: 0.956,
+										green: 0.8,
+										blue: 0.8,
+									},
+								},
+							},
+							fields: 'userEnteredFormat.backgroundColor',
+						},
+					});
+					
+					markedCount++;
+					console.log(`[CheckLeftUsers] Marked row ${rowNumber} - User ${discordId} left the server`);
+				}
+			}
+
+			// Apply all formatting updates in a single batch
+			if (batchUpdates.length > 0) {
+				await this.sheets.spreadsheets.batchUpdate({
+					spreadsheetId,
+					resource: {
+						requests: batchUpdates,
+					},
+				});
+			}
+
+			console.log(`[CheckLeftUsers] Checked ${rows.length - 1} users, marked ${markedCount} as left`);
+			return { checked: rows.length - 1, marked: markedCount };
+		}
+		catch (error) {
+			console.error('[CheckLeftUsers] Error:', error);
+			throw error;
+		}
+	}
+
+	/**
+	 * Get the sheet ID (gid) for a specific sheet name within a spreadsheet
+	 * @param {string} spreadsheetId - The spreadsheet ID
+	 * @param {string} sheetName - The name of the sheet/tab
+	 * @returns {Promise<number>} The sheet ID
+	 */
+	async getSheetId(spreadsheetId, sheetName) {
+		try {
+			const response = await this.sheets.spreadsheets.get({
+				spreadsheetId,
+			});
+
+			const sheet = response.data.sheets.find(s => s.properties.title === sheetName);
+			if (!sheet) {
+				throw new Error(`Sheet "${sheetName}" not found`);
+			}
+
+			return sheet.properties.sheetId;
+		}
+		catch (error) {
+			console.error(`[GetSheetId] Error finding sheet "${sheetName}":`, error);
 			throw error;
 		}
 	}

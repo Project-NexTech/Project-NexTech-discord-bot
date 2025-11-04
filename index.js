@@ -1,16 +1,20 @@
 require('dotenv').config();
 const fs = require('node:fs');
 const path = require('node:path');
-const { Client, Collection, GatewayIntentBits } = require('discord.js');
+const { Client, Collection, GatewayIntentBits, Partials } = require('discord.js');
 
-// Load token from environment variable or config file
-const token = process.env.DISCORD_TOKEN || require('./config.json').token;
+// Load token from environment variable
+const token = process.env.DISCORD_TOKEN;
 
 const client = new Client({ 
 	intents: [
 		GatewayIntentBits.Guilds,
 		GatewayIntentBits.GuildMembers,
+		GatewayIntentBits.DirectMessages,
+		GatewayIntentBits.GuildMessages,
+		GatewayIntentBits.MessageContent,
 	],
+	partials: [Partials.Channel], // Required for DMs
 });
 
 client.commands = new Collection();
@@ -47,3 +51,22 @@ for (const file of eventFiles) {
 }
 
 client.login(token);
+
+// Windows-specific workaround for SIGINT (Ctrl+C) handling
+if (process.platform === "win32") {
+	const rl = require("readline").createInterface({
+		input: process.stdin,
+		output: process.stdout,
+	});
+
+	rl.on("SIGINT", function () {
+		process.emit("SIGINT");
+	});
+}
+
+// Graceful shutdown handler
+process.on("SIGINT", function () {
+	console.log("\nGracefully shutting down...");
+	client.destroy();
+	process.exit(0);
+});

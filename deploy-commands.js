@@ -7,19 +7,41 @@ const dns = require('dns');
 // Force IPv4 to avoid potential network issues
 dns.setDefaultResultOrder('ipv4first');
 
-// Load from environment variables or config file
-let clientId, token, guildId;
-if (process.env.CLIENT_ID && process.env.DISCORD_TOKEN && process.env.GUILD_ID) {
-	clientId = process.env.CLIENT_ID;
-	token = process.env.DISCORD_TOKEN;
-	guildId = process.env.GUILD_ID;
+// Check for command-line arguments
+const args = process.argv.slice(2);
+
+// Show help if requested
+if (args.includes('--help') || args.includes('-h')) {
+	console.log('Usage: node deploy-commands.js [options]\n');
+	console.log('Options:');
+	console.log('  --global, -g    Deploy commands globally (all servers, takes up to 1 hour)');
+	console.log('  --help, -h      Show this help message\n');
+	console.log('Examples:');
+	console.log('  node deploy-commands.js              # Deploy to guild (instant)');
+	console.log('  node deploy-commands.js --global     # Deploy globally (slow)');
+	process.exit(0);
+}
+
+const isGlobal = args.includes('--global') || args.includes('-g');
+
+if (isGlobal) {
+	console.log('Deploying as GLOBAL commands (will take up to 1 hour to propagate)\n');
 }
 else {
-	const config = require('./config.json');
-	clientId = config.clientId;
-	token = config.token;
-	guildId = config.guildId;
+	console.log('Deploying as GUILD commands (instant updates)\n');
 }
+
+// Load from environment variables
+require('dotenv').config();
+const clientId = process.env.CLIENT_ID;
+const token = process.env.DISCORD_TOKEN;
+const guildId = process.env.GUILD_ID;
+const roleIds = {
+	ntMember: process.env.NT_MEMBER_ROLE_ID,
+	ntUnverified: process.env.NT_UNVERIFIED_ROLE_ID,
+	combinedUnverified: process.env.COMBINED_UNVERIFIED_ROLE_ID,
+	ecRole: process.env.EC_ROLE_ID,
+};
 
 const commands = [];
 // Grab all the command folders from the commands directory you created earlier
@@ -118,21 +140,28 @@ function makeDiscordRequest(method, apiPath, body) {
 	});
 }
 
+// Helper to normalize and compare commands
+function normalizeCommand(cmd) {
+	return {
+		name: cmd.name,
+		description: cmd.description,
+		options: cmd.options || [],
+		default_member_permissions: cmd.default_member_permissions || null,
+		dm_permission: cmd.dm_permission,
+		type: cmd.type || 1,
+	};
+}
+
 // Helper to compare if two commands are different
 function commandsAreDifferent(existing, local) {
-	// Compare relevant fields that would require an update
-	const existingData = JSON.stringify({
-		name: existing.name,
-		description: existing.description,
-		options: existing.options || [],
-		default_member_permissions: existing.default_member_permissions,
-	});
-	const localData = JSON.stringify({
-		name: local.name,
-		description: local.description,
-		options: local.options || [],
-		default_member_permissions: local.default_member_permissions,
-	});
+	// Normalize both commands to ensure consistent comparison
+	const existingNormalized = normalizeCommand(existing);
+	const localNormalized = normalizeCommand(local);
+	
+	// Use sorted JSON to avoid false positives from key ordering
+	const existingData = JSON.stringify(existingNormalized, Object.keys(existingNormalized).sort());
+	const localData = JSON.stringify(localNormalized, Object.keys(localNormalized).sort());
+	
 	return existingData !== localData;
 }
 
@@ -141,7 +170,10 @@ function commandsAreDifferent(existing, local) {
 	try {
 		console.log(`Started refreshing ${commands.length} application (/) commands.\n`);
 
-		const commandPath = `/applications/${clientId}/guilds/${guildId}/commands`;
+		// Determine the command path based on deployment type
+		const commandPath = isGlobal
+			? `/applications/${clientId}/commands`
+			: `/applications/${clientId}/guilds/${guildId}/commands`;
 		
 		// Step 1: Get existing commands from Discord
 		console.log('Fetching existing commands from Discord...');
@@ -153,66 +185,87 @@ function commandsAreDifferent(existing, local) {
 		let skipped = 0;
 		const errors = [];
 
-		// Step 2: Process each local command
+		// Step 2: Check for differences
+		let hasChanges = false;
+		
+		// Check if any commands are new, modified, or deleted
 		for (const localCommand of commands) {
 			const existingCommand = existingCommands.find(cmd => cmd.name === localCommand.name);
-
+			
 			if (!existingCommand) {
-				// Command doesn't exist - CREATE it
-				try {
-					console.log(`Creating new command: ${localCommand.name}`);
-					await makeDiscordRequest('POST', commandPath, localCommand);
-					created++;
-				}
-				catch (error) {
-					errors.push({ command: localCommand.name, action: 'create', error: error.message });
-					console.error(`✗ Failed to create ${localCommand.name}: ${error.message}`);
-				}
+				console.log(`New command detected: ${localCommand.name}`);
+				created++;
+				hasChanges = true;
 			}
 			else if (commandsAreDifferent(existingCommand, localCommand)) {
-				// Command exists but is different - UPDATE it
-				try {
-					console.log(`Updating command: ${localCommand.name}`);
-					await makeDiscordRequest('PATCH', `${commandPath}/${existingCommand.id}`, localCommand);
-					updated++;
-				}
-				catch (error) {
-					errors.push({ command: localCommand.name, action: 'update', error: error.message });
-					console.error(`✗ Failed to update ${localCommand.name}: ${error.message}`);
-				}
+				console.log(`Modified command detected: ${localCommand.name}`);
+				updated++;
+				hasChanges = true;
 			}
 			else {
-				// Command exists and is identical - SKIP
 				console.log(`✓ Command unchanged: ${localCommand.name}`);
 				skipped++;
 			}
-
-			// Small delay to avoid overwhelming the API
-			await new Promise(resolve => setTimeout(resolve, 100));
 		}
-
-		// Step 3: Optionally delete commands that no longer exist locally
+		
 		const localCommandNames = commands.map(cmd => cmd.name);
 		const commandsToDelete = existingCommands.filter(cmd => !localCommandNames.includes(cmd.name));
 		
 		if (commandsToDelete.length > 0) {
-			console.log(`\nFound ${commandsToDelete.length} command(s) to delete:`);
-			for (const cmd of commandsToDelete) {
-				try {
-					console.log(`Deleting removed command: ${cmd.name}`);
-					await makeDiscordRequest('DELETE', `${commandPath}/${cmd.id}`, null);
+			console.log(`\nCommands to be deleted: ${commandsToDelete.map(c => c.name).join(', ')}`);
+			hasChanges = true;
+		}
+
+		// Step 3: If there are changes, use bulk overwrite (PUT) to update all commands at once
+		// This is the recommended approach and prevents duplicates
+		if (hasChanges) {
+			console.log(`\n📝 Applying changes (bulk overwrite)...`);
+			
+			try {
+				const result = await makeDiscordRequest('PUT', commandPath, commands);
+				
+				console.log(`✓ Successfully deployed ${result.length} commands`);
+				
+				// Reset counters since bulk overwrite was used
+				created = commands.filter(cmd => !existingCommands.find(ex => ex.name === cmd.name)).length;
+				updated = commands.filter(cmd => {
+					const existing = existingCommands.find(ex => ex.name === cmd.name);
+					return existing && commandsAreDifferent(existing, cmd);
+				}).length;
+			}
+			catch (error) {
+				// Handle rate limiting
+				if (error.status === 429 && error.retry_after) {
+					const waitTime = Math.ceil(error.retry_after) + 1;
+					console.log(`⏱️  Rate limited. Waiting ${waitTime} seconds...`);
+					await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+					
+					// Retry
+					try {
+						console.log(`Retrying bulk deployment...`);
+						const result = await makeDiscordRequest('PUT', commandPath, commands);
+						console.log(`✓ Successfully deployed ${result.length} commands`);
+					}
+					catch (retryError) {
+						errors.push({ command: 'bulk deployment', action: 'deploy', error: retryError.message });
+						console.error(`✗ Failed to deploy commands after retry: ${retryError.message}`);
+					}
 				}
-				catch (error) {
-					errors.push({ command: cmd.name, action: 'delete', error: error.message });
-					console.error(`✗ Failed to delete ${cmd.name}: ${error.message}`);
+				else {
+					errors.push({ command: 'bulk deployment', action: 'deploy', error: error.message });
+					console.error(`✗ Failed to deploy commands: ${error.message}`);
 				}
 			}
+		}
+		else {
+			console.log('\n✓ No changes detected. Skipping deployment.');
 		}
 
 		// Summary
 		console.log('\n' + '='.repeat(50));
 		console.log('✅ Deployment Complete!');
 		console.log('='.repeat(50));
+		console.log(`Scope: ${isGlobal ? 'GLOBAL (all servers)' : `GUILD (${guildId})`}`);
 		console.log(`Created: ${created}`);
 		console.log(`Updated: ${updated}`);
 		console.log(`Unchanged: ${skipped}`);
@@ -221,6 +274,10 @@ function commandsAreDifferent(existing, local) {
 			console.log(`Errors: ${errors.length}`);
 		}
 		console.log('='.repeat(50));
+
+		if (isGlobal && (created > 0 || updated > 0)) {
+			console.log('\nGlobal commands can take up to 1 hour to appear in all servers.');
+		}
 
 		if (errors.length > 0) {
 			console.log('\n⚠️  Some commands failed:');
