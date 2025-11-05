@@ -15,10 +15,10 @@ module.exports = {
 				const region = interaction.fields.getTextInputValue('region');
 				const roboticsAndReferral = interaction.fields.getTextInputValue('roboticsAndReferral');
 				
-				// Parse the combined field
+				// Parse the combined field (Line 1: How found us, Line 2: Robotics team)
 				const lines = roboticsAndReferral.split('\n');
-				const roboticsTeam = lines[0]?.trim() || 'N/A';
-				const referralSource = lines.slice(1).join('\n').trim() || 'Not specified';
+				const referralSource = lines[0]?.trim() || 'Not specified';
+				const roboticsTeam = lines.slice(1).join('\n').trim() || 'N/A';
 
 				// Get verification review channel
 				const verificationChannelId = process.env.VERIFICATION_CHANNEL_ID;

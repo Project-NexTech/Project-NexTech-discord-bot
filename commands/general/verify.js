@@ -57,9 +57,9 @@ module.exports = {
 
 			const roboticsAndReferralInput = new TextInputBuilder()
 				.setCustomId('roboticsAndReferral')
-				.setLabel('Robotics Team & How You Found Us')
+				.setLabel('How You Found Us & Robotics Team')
 				.setStyle(TextInputStyle.Paragraph)
-				.setPlaceholder('Line 1: Your robotics team (or N/A)\nLine 2: How you found Project NexTech')
+				.setPlaceholder('Line 1: How you found Project NexTech\nLine 2: Your robotics team (or N/A)')
 				.setRequired(true);
 
 			const firstRow = new ActionRowBuilder().addComponents(nameInput);

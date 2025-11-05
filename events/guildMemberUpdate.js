@@ -51,7 +51,7 @@ module.exports = {
 					},
 					{ 
 						name: '❓ Questions?', 
-						value: 'Feel free to ask in this channel if you need any help!',
+						value: 'Feel free to DM this bot with any questions you may have!',
 					},
 				)
 				.setTimestamp()
