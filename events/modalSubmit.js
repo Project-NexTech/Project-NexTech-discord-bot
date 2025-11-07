@@ -20,10 +20,10 @@ module.exports = {
 				const referralSource = lines[0]?.trim() || 'Not specified';
 				const roboticsTeam = lines.slice(1).join('\n').trim() || 'N/A';
 
-				// Get verification review channel
-				const verificationChannelId = process.env.VERIFICATION_CHANNEL_ID;
+				// Get staff chat channel for verification review
+				const verificationChannelId = process.env.STAFF_CHAT_CHANNEL_ID;
 				if (!verificationChannelId) {
-					console.error('VERIFICATION_CHANNEL_ID not set in environment variables');
+					console.error('STAFF_CHAT_CHANNEL_ID not set in environment variables');
 					return interaction.editReply({
 						content: '❌ Verification system is not properly configured. Please contact an administrator.',
 						flags: MessageFlags.Ephemeral,
@@ -32,7 +32,7 @@ module.exports = {
 
 				const verificationChannel = await interaction.client.channels.fetch(verificationChannelId);
 				if (!verificationChannel) {
-					console.error('Could not find verification channel');
+					console.error('Could not find staff chat channel');
 					return interaction.editReply({
 						content: '❌ Could not access verification channel. Please contact an administrator.',
 						flags: MessageFlags.Ephemeral,

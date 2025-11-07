@@ -12,20 +12,20 @@ module.exports = {
 		if (!message.guild) {
 			console.log(`[MessageCreate] Received DM from ${message.author.tag}`);
 			try {
-				const verificationChannelId = process.env.VERIFICATION_CHANNEL_ID;
+				const verificationChannelId = process.env.STAFF_CHAT_CHANNEL_ID;
 				const verificationTeamRoleId = process.env.VERIFICATION_TEAM_ROLE_ID;
-				console.log(`[MessageCreate] Verification channel ID: ${verificationChannelId}`);
+				console.log(`[MessageCreate] Staff chat channel ID: ${verificationChannelId}`);
 				
 				if (!verificationChannelId) {
-					console.error('VERIFICATION_CHANNEL_ID not found in environment variables');
+					console.error('STAFF_CHAT_CHANNEL_ID not found in environment variables');
 					return;
 				}
 
-				// Get the verification channel
+				// Get the staff chat channel
 				const verificationChannel = await message.client.channels.fetch(verificationChannelId);
 				
 				if (!verificationChannel) {
-					console.error('Could not find verification channel');
+					console.error('Could not find staff chat channel');
 					return;
 				}
 

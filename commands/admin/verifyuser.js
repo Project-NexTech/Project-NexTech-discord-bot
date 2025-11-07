@@ -310,7 +310,27 @@ module.exports = {
 				embed.setDescription(embed.data.description + warningMessage);
 			}
 
-			await interaction.editReply({ embeds: [embed] });
+			// Send embed to staff chat channel
+			const staffChatChannelId = process.env.STAFF_CHAT_CHANNEL_ID;
+			if (staffChatChannelId) {
+				try {
+					const staffChatChannel = await interaction.client.channels.fetch(staffChatChannelId);
+					if (staffChatChannel) {
+						await staffChatChannel.send({ embeds: [embed] });
+					} else {
+						console.error('Staff chat channel not found');
+					}
+				} catch (channelError) {
+					console.error('Could not send verification embed to staff chat:', channelError);
+				}
+			} else {
+				console.error('STAFF_CHAT_CHANNEL_ID not set in environment variables');
+			}
+
+			// Send confirmation to the command user
+			await interaction.editReply({
+				content: `Successfully verified ${targetUser}. Details have been logged to the staff chat channel.`,
+			});
 
 			// Send welcome message to NT chat channel
 			try {

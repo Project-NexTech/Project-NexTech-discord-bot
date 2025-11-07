@@ -7,7 +7,7 @@ module.exports = {
 			// Get unverified role IDs from environment (same roles that can run /verify)
 			const ntUnverifiedRoleId = process.env.NT_UNVERIFIED_ROLE_ID || '000000000000000000';
 			const combinedUnverifiedRoleId = process.env.COMBINED_UNVERIFIED_ROLE_ID || '000000000000000000';
-			const verifyPingChannelId = process.env.VERIFY_PING_CHANNEL_ID;
+			const verifyPingChannelId = process.env.MEMBERS_CHANNEL_ID;
 
 			// Check if user just received one of the unverified roles (from Discord onboarding)
 			const receivedUnverifiedRole = (
@@ -29,13 +29,13 @@ module.exports = {
 
 			// Make sure we have a channel to ping in
 			if (!verifyPingChannelId) {
-				console.error('VERIFY_PING_CHANNEL_ID not set in environment variables');
+				console.error('MEMBERS_CHANNEL_ID not set in environment variables');
 				return;
 			}
 
 			const verifyPingChannel = await newMember.guild.channels.fetch(verifyPingChannelId);
 			if (!verifyPingChannel) {
-				console.error('Could not find verify ping channel');
+				console.error('Could not find members channel');
 				return;
 			}
 
