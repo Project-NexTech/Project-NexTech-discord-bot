@@ -2,7 +2,7 @@ const path = require('node:path');
 // Load .env from the script's directory, not the current working directory
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const fs = require('node:fs');
-const { Client, Collection, GatewayIntentBits, Partials } = require('discord.js');
+const { Client, Collection, GatewayIntentBits, Partials, ActivityType } = require('discord.js');
 
 // Load token from environment variable
 const token = process.env.DISCORD_TOKEN;
@@ -16,6 +16,10 @@ const client = new Client({
 		GatewayIntentBits.MessageContent,
 	],
 	partials: [Partials.Channel], // Required for DMs
+	presence: {
+		activities: [{ name: 'STEM Education', type: ActivityType.Watching }],
+		status: 'online',
+	},
 });
 
 client.commands = new Collection();
