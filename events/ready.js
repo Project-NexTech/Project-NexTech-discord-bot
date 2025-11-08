@@ -8,6 +8,16 @@ module.exports = {
 	async execute(client) {
 		console.log(`Ready! Logged in as ${client.user.tag}`);
 		
+		// Fetch all guild members to populate cache (for nickname conflict detection)
+		try {
+			for (const guild of client.guilds.cache.values()) {
+				const memberCount = await guild.members.fetch();
+				console.log(`✅ Cached ${memberCount.size} members from guild: ${guild.name}`);
+			}
+		} catch (error) {
+			console.error('⚠️ Failed to fetch guild members:', error.message);
+		}
+		
 		// Initialize Google Sheets API
 		try {
 			await sheetsManager.initialize();

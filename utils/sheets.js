@@ -317,6 +317,47 @@ class SheetsManager {
 	}
 
 	/**
+	 * Get verification data for a specific Discord user
+	 * @param {string} discordUserId - Discord user ID
+	 * @returns {Promise<Object|null>} User verification data or null if not found
+	 */
+	async getVerificationData(discordUserId) {
+		try {
+			const spreadsheetId = process.env.VERIFICATION_SHEET_ID;
+
+			const response = await this.sheets.spreadsheets.values.get({
+				spreadsheetId,
+				range: "'#nextech-verify'!A:J",
+			});
+
+			const rows = response.data.values;
+			if (!rows || rows.length === 0) {
+				return null;
+			}
+
+			// Find the user by Discord ID (Column A)
+			// Skip header row (index 0)
+			const userRow = rows.slice(1).find(row => row[0] === discordUserId);
+			if (!userRow) {
+				return null;
+			}
+
+			return {
+				discordId: userRow[0],
+				name: userRow[1] || '',
+				grade: userRow[5] || 'N/A',
+				school: userRow[6] || 'N/A',
+				region: userRow[7] || 'N/A',
+				roboticsTeam: userRow[8] || 'N/A',
+				inviteSource: userRow[9] || 'N/A',
+			};
+		} catch (error) {
+			console.error('Error in getVerificationData:', error);
+			return null;
+		}
+	}
+
+	/**
 	 * Get hours leaderboard
 	 * @param {number} limit - Maximum number of entries to return
 	 * @returns {Promise<Array>} Leaderboard data

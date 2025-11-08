@@ -39,6 +39,25 @@ module.exports = {
 				return;
 			}
 
+			// Send DM to the new member
+			let dmSent = false;
+			try {
+				const welcomeMessage = `Welcome to **Project NexTech**, ${newMember.user.username}! 🎉\n\n` +
+					`**Getting Started:**\n` +
+					`• Use \`/verify\` to gain access to the rest of the server. **You must do this first before doing anything else.**\n` +
+					`• Get roles in <#1231777272906649670> \n` +
+					`• Use \`/events\` to see upcoming events\n` +
+					`• Use \`/hours\` to track your volunteer hours\n` +
+					`• Use \`/contact\` to find department leadership\n\n` +
+					`If you have any questions, feel free to reach out to the leadership team by sending a DM to this bot!`;
+
+				await newMember.user.send(welcomeMessage);
+				dmSent = true;
+			}
+			catch (dmError) {
+				console.error('Could not send DM to new member:', dmError);
+			}
+
 			// Create welcome embed
 			const embed = new EmbedBuilder()
 				.setColor(0x5865F2)

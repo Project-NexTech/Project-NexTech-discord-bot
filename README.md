@@ -87,16 +87,27 @@ Manually verify a new member and assign appropriate roles.
 - `invite_source` (optional) - How they found Project NexTech
 
 **Features:**
+- **Automatic Nickname Conflict Detection & Resolution:**
+  - Detects members with the same first name
+  - Auto-resolves when last initials are different (adds last initial to both users)
+  - Triggers manual modal when last initials match (requires custom nicknames)
+  - Only verifies users with unverified roles to prevent accidental re-verification
 - Autocomplete for region selection
 - Logs verification to Google Sheets
-- Removes unverified roles
+- Removes unverified roles (NT Unverified/Combined Unverified)
 - Assigns NT Member role
 - Assigns Server Member/Online Member roles based on IRL connection
 - Assigns NT Unenrolled role by default
 - Assigns region and country roles automatically
-- Updates nickname to `[ɴᴛ] FirstName` format
-- Sends welcome DM with getting started information
+- Updates nickname to `[ɴᴛ] FirstName` or `[ɴᴛ] FirstName L.` format
+- Sends verification details to staff chat channel
+- Posts welcome message in NT chat channel
 - Warns about missing optional fields
+
+**Nickname Conflict Resolution:**
+- **No Conflict:** Sets nickname to `[ɴᴛ] FirstName`
+- **Different Last Initials:** Auto-resolves by setting both users to `[ɴᴛ] FirstName L.`
+- **Same Last Initials:** Opens interactive modal for manual nickname entry for both users
 
 ### General Commands
 
@@ -270,9 +281,9 @@ EC_ROLE_ID=role_id
 VERIFICATION_TEAM_ROLE_ID=role_id
 
 # Channel IDs
-VERIFICATION_CHANNEL_ID=channel_id
-VERIFY_PING_CHANNEL_ID=channel_id
 INFO_SESSION_VOICE_CHANNEL_ID=channel_id
+NT_CHAT_CHANNEL_ID=channel_id
+STAFF_CHAT_CHANNEL_ID=channel_id
 
 # Google Sheets IDs
 VOLUNTEERS_SHEET_ID=sheet_id
@@ -415,6 +426,18 @@ Uses Google Service Account authentication with OAuth 2.0. The service account m
 - **Action:** Sends welcome message to verify ping channel
 - **Content:** Instructions to run `/verify` command
 - **Skips:** Users already verified via `/verifyuser`
+
+### Verification Announcements
+- **Trigger:** User successfully verified via `/verifyuser` command
+- **Staff Notification:** Sends detailed verification embed to staff chat channel
+- **Public Welcome:** Posts welcome message in NT chat channel with instructions
+- **Content:** Directs new members to announcements, role selection, and info sessions
+
+### Nickname Conflict Management
+- **Detection:** Automatically checks for existing members with same first name
+- **Auto-Resolution:** When last initials differ, adds last initial to both users' nicknames
+- **Manual Resolution:** When last initials match, prompts staff to set custom nicknames via interactive modal
+- **Prevention:** Ensures unique, identifiable nicknames across all verified members
 
 ### DM Forwarding
 - **Trigger:** Bot receives direct message

@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
 const sheetsManager = require('../../utils/sheets');
 const { hasRequiredRole } = require('../../utils/helpers');
 
@@ -126,6 +126,37 @@ module.exports = {
 			const targetUser = interaction.options.getUser('user');
 			const targetMember = await interaction.guild.members.fetch(targetUser.id);
 			
+			// Get all required roles at the start
+			const ntUnverifiedRole = interaction.guild.roles.cache.find(role =>
+				role.name.toLowerCase().includes('nextech unverified'),
+			);
+			const combinedUnverifiedRole = interaction.guild.roles.cache.find(role =>
+				role.name.toLowerCase().includes('combined unverified'),
+			);
+			const ntMemberRole = interaction.guild.roles.cache.find(role =>
+				role.name.toLowerCase().includes('nt member'),
+			);
+			const serverMemberRole = interaction.guild.roles.cache.find(role =>
+				role.name.toLowerCase().includes('server member'),
+			);
+			const onlineMemberRole = interaction.guild.roles.cache.find(role =>
+				role.name.toLowerCase().includes('online member'),
+			);
+			const ntUnenrolledRole = interaction.guild.roles.cache.find(role =>
+				role.name.toLowerCase().includes('nt unenrolled'),
+			);
+
+			// Check if user has unverified role before proceeding
+			const hasNtUnverified = ntUnverifiedRole && targetMember.roles.cache.has(ntUnverifiedRole.id);
+			const hasCombinedUnverified = combinedUnverifiedRole && targetMember.roles.cache.has(combinedUnverifiedRole.id);
+
+			if (!hasNtUnverified && !hasCombinedUnverified) {
+				return interaction.editReply({
+					content: `❌ **Cannot Verify User**\n\n${targetUser} does not have the "NexTech Unverified" or "Combined Unverified" role. This user may already be verified or may not need verification.`,
+					flags: MessageFlags.Ephemeral,
+				});
+			}
+			
 			// Get region string and validate
 			const regionName = interaction.options.getString('region');
 			let regionRole = null;
@@ -189,12 +220,240 @@ module.exports = {
 				warningMessage = `\n⚠️ **Warning:** Missing optional fields: ${missingFields.join(', ')}`;
 			}
 
-			// Check if user has unverified role
-			const unverifiedRole = interaction.guild.roles.cache.find(role =>
-				role.name.toLowerCase().includes('unverified') || role.name.toLowerCase().includes('pending'),
-			);
+			// Store which unverified roles the user had (needed for pending verification state)
+			const hadNtUnverified = ntUnverifiedRole && targetMember.roles.cache.has(ntUnverifiedRole.id);
+			const hadCombinedUnverified = combinedUnverifiedRole && targetMember.roles.cache.has(combinedUnverifiedRole.id);
 
-			// Log verification to Google Sheets
+			// ============================================
+			// STEP 1: Handle nickname conflict detection BEFORE everything else
+			// ============================================
+			let newUserNickname = null;
+			let conflictingMemberToUpdate = null;
+			let conflictingMemberNewNickname = null;
+
+			try {
+				// Parse the user's name
+				const nameParts = userData.name.trim().split(/\s+/);
+				const firstName = nameParts[0];
+				const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : '';
+				const lastInitial = lastName ? lastName.charAt(0).toUpperCase() : '';
+
+				const ntMemberRoleCheck = interaction.guild.roles.cache.find(role =>
+					role.name.toLowerCase().includes('nt member'),
+				);
+				
+				let conflictingMember = null;
+				
+				if (ntMemberRoleCheck) {
+					// Use cached members only (instant, no rate limit)
+					// Discord.js automatically caches members with GuildMembers intent
+					const membersToCheck = interaction.guild.members.cache;
+					
+					// Find ALL members with the same first name (ignore the [ɴᴛ] prefix)
+					const membersWithSameFirstName = membersToCheck.filter(member => {
+						if (member.id === targetMember.id) return false;
+						if (!member.roles.cache.has(ntMemberRoleCheck.id)) return false;
+						
+						const nick = member.nickname || member.user.username;
+						// Remove [ɴᴛ] prefix if it exists
+						const cleanNick = nick.replace(/^\[ɴᴛ\]\s*/i, '');
+						const nickFirstName = cleanNick.trim().split(/\s+/)[0];
+						return nickFirstName.toLowerCase() === firstName.toLowerCase();
+					});
+
+					console.log(`[Nickname Conflict Debug] Found ${membersWithSameFirstName.size} member(s) with first name "${firstName}"`);
+
+					if (membersWithSameFirstName.size > 0) {
+						// Store info about all conflicting members
+						const conflictInfo = [];
+						
+						for (const [, member] of membersWithSameFirstName) {
+							const memberNick = member.nickname || member.user.username;
+							const cleanMemberNick = memberNick.replace(/^\[ɴᴛ\]\s*/i, '');
+							const hasLastInitialInNick = /^[A-Za-z]+\s+[A-Z]\.$/.test(cleanMemberNick.trim());
+							
+							// Get member's last initial from sheet or nickname
+							let memberLastInitial = null;
+							try {
+								const sheetData = await sheetsManager.getVerificationData(member.id);
+								if (sheetData && sheetData.name) {
+									const memberNameParts = sheetData.name.trim().split(/\s+/);
+									const memberLastName = memberNameParts.length > 1 ? memberNameParts[memberNameParts.length - 1] : '';
+									memberLastInitial = memberLastName ? memberLastName.charAt(0).toUpperCase() : null;
+								}
+							} catch (sheetError) {
+								console.error('Failed to get member data from sheet:', sheetError);
+							}
+							
+							// If member has last initial in nickname, extract it
+							if (hasLastInitialInNick && !memberLastInitial) {
+								const nickParts = cleanMemberNick.trim().split(/\s+/);
+								if (nickParts.length >= 2) {
+									const lastPart = nickParts[nickParts.length - 1];
+									if (/^[A-Z]\.$/.test(lastPart)) {
+										memberLastInitial = lastPart.charAt(0);
+									}
+								}
+							}
+							
+							console.log(`[Nickname Conflict Debug] Member: ${member.user.tag}, last initial: ${memberLastInitial}, hasLastInitialInNick: ${hasLastInitialInNick}`);
+							
+							conflictInfo.push({
+								member,
+								lastInitial: memberLastInitial,
+								hasLastInitialInNick,
+								nickname: memberNick,
+							});
+						}
+						
+						// Check if ANY member has the same last initial
+						const memberWithSameLastInitial = conflictInfo.find(info => 
+							info.lastInitial && info.lastInitial === lastInitial
+						);
+						
+						console.log(`[Nickname Conflict Debug] New user: ${firstName} ${lastName}, last initial: ${lastInitial}`);
+						
+						if (memberWithSameLastInitial) {
+							// SAME last initial - trigger manual modal
+							console.log(`[Nickname Conflict Debug] SAME last initial detected with ${memberWithSameLastInitial.member.user.tag} - triggering modal`);
+							conflictingMember = memberWithSameLastInitial.member;
+							// Store the conflict info for use below
+							conflictingMember._conflictInfo = memberWithSameLastInitial;
+							conflictingMember._triggerModal = true;
+						} else {
+							// DIFFERENT last initials - auto-resolve (pick first member for updating)
+							console.log(`[Nickname Conflict Debug] DIFFERENT last initials - auto-resolving`);
+							conflictingMember = conflictInfo[0].member;
+							// Store the conflict info for use below
+							conflictingMember._conflictInfo = conflictInfo[0];
+							conflictingMember._triggerModal = false;
+						}
+					}
+				}
+
+				if (conflictingMember) {
+					// Found a member with the same first name
+					const conflictingNick = conflictingMember.nickname || conflictingMember.user.username;
+					
+					if (!lastInitial) {
+						// New user doesn't have a last name, cannot auto-resolve
+						return interaction.editReply({
+							content: `❌ **Nickname Conflict Detected**\n\n` +
+								`A member with the first name "${firstName}" already exists: ${conflictingMember}\n\n` +
+								`The new user "${userData.name}" doesn't have a last name provided. Please re-run the command with a full name (First Last) to resolve this conflict automatically.`,
+						});
+					}
+
+					// Use the conflict info we already determined in the loop above
+					const conflictInfo = conflictingMember._conflictInfo;
+					const triggerModal = conflictingMember._triggerModal;
+					const conflictingLastInitial = conflictInfo.lastInitial;
+					const hasLastInitialInNick = conflictInfo.hasLastInitialInNick;
+
+					// IMPORTANT: Check for SAME last initials FIRST (manual modal)
+					// Then check for DIFFERENT last initials (auto-resolve)
+					if (triggerModal) {
+						// Last initials MATCH - require manual input via modal
+						console.log('[Nickname Conflict Debug] Triggering manual modal - same last initials');
+						if (!interaction.client.verificationPending) {
+							interaction.client.verificationPending = new Map();
+						}
+						
+						interaction.client.verificationPending.set(targetUser.id, {
+							userData,
+							targetMember,
+							conflictingMember,
+							interaction,
+							regionRole,
+							countryRole,
+							hadNtUnverified,
+							hadCombinedUnverified,
+							ntMemberRole,
+							serverMemberRole,
+							onlineMemberRole,
+							ntUnenrolledRole,
+							ntChatChannelId: process.env.NT_CHAT_CHANNEL_ID,
+							staffChatChannelId: process.env.STAFF_CHAT_CHANNEL_ID,
+							missingFields,
+							warningMessage,
+						});
+
+						// Set a timeout to clean up pending verification if modal is not submitted (5 minutes)
+						const timeoutId = setTimeout(() => {
+							if (interaction.client.verificationPending && interaction.client.verificationPending.has(targetUser.id)) {
+								interaction.client.verificationPending.delete(targetUser.id);
+								console.log(`Verification timeout for user ${targetUser.id} - modal was not submitted`);
+							}
+						}, 5 * 60 * 1000); // 5 minutes
+
+						interaction.client.verificationPending.get(targetUser.id).timeoutId = timeoutId;
+
+						const { ButtonBuilder, ButtonStyle } = require('discord.js');
+						const resolveButton = new ButtonBuilder()
+							.setCustomId(`resolve_nickname_conflict_${targetUser.id}`)
+							.setLabel('Resolve Nickname Conflict')
+							.setStyle(ButtonStyle.Primary);
+
+						const cancelButton = new ButtonBuilder()
+							.setCustomId(`cancel_verification_${targetUser.id}`)
+							.setLabel('Cancel Verification')
+							.setStyle(ButtonStyle.Danger);
+
+						const buttonRow = new ActionRowBuilder().addComponents(resolveButton, cancelButton);
+
+						await interaction.editReply({
+							content: `⚠️ **Nickname Conflict - Manual Resolution Required**\n\n` +
+								`${targetUser} cannot be automatically verified because a member with the first name "${firstName}" and the same last initial "${lastInitial}" already exists: ${conflictingMember}\n` +
+								`Current nickname: \`${conflictingNick}\`\n\n` +
+								`**Both users' nicknames need to be updated manually** because they share the same first name and last initial.\n\n` +
+								`**Action Required:** Click "Resolve Nickname Conflict" to specify what both users' nicknames should be (without [ɴᴛ] prefix), or "Cancel Verification" to abort.`,
+							components: [buttonRow],
+						});
+
+						// STOP EXECUTION - wait for modal
+						return;
+					} else if (hasLastInitialInNick || conflictingLastInitial) {
+						// Existing member has a last initial but DIFFERENT from new user - auto-resolve with both having initials
+						console.log('[Nickname Conflict Debug] Auto-resolving - different last initials or existing member has distinguishable nickname');
+						newUserNickname = `[ɴᴛ] ${firstName} ${lastInitial}.`;
+						
+						// Update the existing member's nickname ONLY if they don't already have a last initial
+						if (!hasLastInitialInNick && conflictingLastInitial) {
+							// They don't have a last initial yet, so add it
+							conflictingMemberToUpdate = conflictingMember;
+							conflictingMemberNewNickname = `[ɴᴛ] ${firstName} ${conflictingLastInitial}.`;
+							
+							// Add notification to warning message
+							const conflictResolutionMsg = `\n\n**✅ Nickname Conflict Auto-Resolved:**\n` +
+								`• ${targetUser}: \`${newUserNickname}\`\n` +
+								`• ${conflictingMember}: \`${conflictingMemberNewNickname}\``;
+							
+							warningMessage += conflictResolutionMsg;
+						} else {
+							// They already have a last initial (from a previous conflict), don't change it
+							const conflictResolutionMsg = `\n\n**✅ Nickname Conflict Auto-Resolved:**\n` +
+								`• ${targetUser}: \`${newUserNickname}\`\n` +
+								`• ${conflictingMember}: Nickname unchanged (already has last initial)`;
+							
+							warningMessage += conflictResolutionMsg;
+						}
+					}
+				} else {
+					// No conflict, set normal nickname
+					newUserNickname = `[ɴᴛ] ${firstName}`;
+				}
+			}
+			catch (nicknameError) {
+				console.error('Failed to detect nickname conflict:', nicknameError);
+				console.error(nicknameError.stack);
+				// Continue with default nickname
+				const firstName = userData.name.trim().split(/\s+/)[0];
+				newUserNickname = `[ɴᴛ] ${firstName}`;
+			}
+
+			// ============================================
+			// STEP 2: Log verification to Google Sheets
+			// ============================================
 			const sheetLogged = await sheetsManager.verifyUser(userData);
 			if (!sheetLogged) {
 				await interaction.editReply({
@@ -203,96 +462,80 @@ module.exports = {
 				return;
 			}
 
-			// Assign roles and update nickname
-			const ntUnverifiedRole = interaction.guild.roles.cache.find(role =>
-				role.name.toLowerCase().includes('nextech unverified'),
-			);
-			const combinedUnverifiedRole = interaction.guild.roles.cache.find(role =>
-				role.name.toLowerCase().includes('combined unverified'),
-			);
-			const ntMemberRole = interaction.guild.roles.cache.find(role =>
-				role.name.toLowerCase().includes('nt member'),
-			);
-			const serverMemberRole = interaction.guild.roles.cache.find(role =>
-				role.name.toLowerCase().includes('server member'),
-			);
-			const onlineMemberRole = interaction.guild.roles.cache.find(role =>
-				role.name.toLowerCase().includes('online member'),
-			);
-			const ntUnenrolledRole = interaction.guild.roles.cache.find(role =>
-				role.name.toLowerCase().includes('nt unenrolled'),
-			);
-
-			const hadNtUnverified = ntUnverifiedRole && targetMember.roles.cache.has(ntUnverifiedRole.id);
-			const hadCombinedUnverified = combinedUnverifiedRole && targetMember.roles.cache.has(combinedUnverifiedRole.id);
-
-			const rolesToRemove = [];
-			if (hadNtUnverified) rolesToRemove.push(ntUnverifiedRole);
-			if (hadCombinedUnverified) rolesToRemove.push(combinedUnverifiedRole);
-
-			if (rolesToRemove.length > 0) {
-				await targetMember.roles.remove(rolesToRemove.filter(Boolean));
-			}
-
-			if (ntMemberRole) {
-				await targetMember.roles.add(ntMemberRole);
-			}
-
-			if (hadCombinedUnverified) {
-				if (userData.hasIRLConnection && serverMemberRole) {
-					await targetMember.roles.add(serverMemberRole);
-				}
-				else if (!userData.hasIRLConnection && onlineMemberRole) {
-					await targetMember.roles.add(onlineMemberRole);
-				}
-			}
-
-			// Add NT Unenrolled role
-			if (ntUnenrolledRole) {
-				await targetMember.roles.add(ntUnenrolledRole);
-			}
-
-			// Add region and country roles if selected
-			if (regionRole) {
-				await targetMember.roles.add(regionRole);
-			}
-			if (countryRole) {
-				await targetMember.roles.add(countryRole);
-			}
-
+			// ============================================
+			// STEP 3: Assign roles
+			// ============================================
 			try {
-				// Extract first name only (everything before the first space)
-				const firstName = userData.name.split(' ')[0];
-				await targetMember.setNickname(`[ɴᴛ] ${firstName}`);
+				const rolesToRemove = [];
+				if (hadNtUnverified) rolesToRemove.push(ntUnverifiedRole);
+				if (hadCombinedUnverified) rolesToRemove.push(combinedUnverifiedRole);
+
+				if (rolesToRemove.length > 0) {
+					await targetMember.roles.remove(rolesToRemove.filter(Boolean));
+				}
+
+				if (ntMemberRole) {
+					await targetMember.roles.add(ntMemberRole);
+				}
+
+				if (hadCombinedUnverified) {
+					if (userData.hasIRLConnection && serverMemberRole) {
+						await targetMember.roles.add(serverMemberRole);
+					}
+					else if (!userData.hasIRLConnection && onlineMemberRole) {
+						await targetMember.roles.add(onlineMemberRole);
+					}
+				}
+
+				// Add NT Unenrolled role
+				if (ntUnenrolledRole) {
+					await targetMember.roles.add(ntUnenrolledRole);
+				}
+
+				// Add region and country roles if selected
+				if (regionRole) {
+					await targetMember.roles.add(regionRole);
+				}
+				if (countryRole) {
+					await targetMember.roles.add(countryRole);
+				}
+			} catch (roleError) {
+				console.error('Failed to assign roles:', roleError);
+				console.error(roleError.stack);
+				return interaction.editReply({
+					content: `❌ **Verification Cancelled**\n\nFailed to assign roles to ${targetUser}. The user has been logged in the verification sheet but roles were not updated. Please manually assign roles or try verifying again.`,
+					flags: MessageFlags.Ephemeral,
+				});
+			}
+
+			// ============================================
+			// STEP 4: Set nicknames
+			// ============================================
+			try {
+				if (newUserNickname) {
+					await targetMember.setNickname(newUserNickname);
+					console.log(`Set nickname for ${targetUser.tag} to ${newUserNickname}`);
+				}
+
+				if (conflictingMemberToUpdate && conflictingMemberNewNickname) {
+					await conflictingMemberToUpdate.setNickname(conflictingMemberNewNickname);
+					console.log(`Set nickname for ${conflictingMemberToUpdate.user.tag} to ${conflictingMemberNewNickname}`);
+				}
 			}
 			catch (nicknameError) {
 				console.error('Failed to update nickname:', nicknameError);
-			}
-
-			// Send welcome DM to the verified user first
-			let dmSent = false;
-			try {
-				const welcomeMessage = `Welcome to **Project NexTech**, ${userData.name}! 🎉\n\n` +
-					`**Getting Started:**\n` +
-					`• Use \`/verify\` to gain access to the rest of the server. **You must to this first before doing anything else.**\n` +
-					`• Get roles in <#1231777272906649670> \n` +
-					`• Use \`/events\` to see upcoming events\n` +
-					`• Use \`/hours\` to track your volunteer hours\n` +
-					`• Use \`/contact\` to find department leadership\n\n` +
-					`If you have any questions, feel free to reach out to the leadership team!`;
-
-				await targetUser.send(welcomeMessage);
-				dmSent = true;
-			}
-			catch (dmError) {
-				console.error('Could not send DM to verified user:', dmError);
+				console.error(nicknameError.stack);
+				return interaction.editReply({
+					content: `❌ **Verification Cancelled**\n\nFailed to set nickname for ${targetUser}. The user has been logged and roles have been assigned, but the nickname could not be set. Please manually set the nickname to: \`${newUserNickname}\``,
+					flags: MessageFlags.Ephemeral,
+				});
 			}
 
 			// Create success embed (always shown regardless of DM status)
 			const embed = new EmbedBuilder()
 				.setColor(0x57F287)
 				.setTitle('✅ User Verified Successfully')
-				.setDescription(`${targetUser} has been verified and logged in the system.${!dmSent ? '\n\n⚠️ **Could not send welcome DM** - User may have DMs disabled.' : ''}`)
+				.setDescription(`${targetUser} has been verified and logged in the system.`)
 				.addFields(
 					{ name: 'Name', value: userData.name, inline: true },
 					{ name: 'Grade', value: userData.grade || 'N/A', inline: true },
@@ -329,7 +572,7 @@ module.exports = {
 
 			// Send confirmation to the command user
 			await interaction.editReply({
-				content: `Successfully verified ${targetUser}. Details have been logged to the staff chat channel.`,
+				content: `Successfully verified ${targetUser}. Details have been logged to <#${staffChatChannelId}>.`,
 			});
 
 			// Send welcome message to NT chat channel
@@ -338,7 +581,6 @@ module.exports = {
 				if (ntChatChannelId) {
 					const ntChatChannel = await interaction.client.channels.fetch(ntChatChannelId);
 					if (ntChatChannel) {
-						// TODO: Replace this placeholder message with the actual welcome message
 						const welcomeChannelMessage = `Welcome to Project NexTech, ${targetUser}! Please check <#1231776603126890671> for updates every few days and get your roles in <#1231777272906649670>. You can select any departments/subjects you are interested in. <#1386576733674668052> has useful information to get started. New members should go to one of our online info sessions. We will announce in <#1231776603126890671> when we will have one.`;
 						await ntChatChannel.send(welcomeChannelMessage);
 					} else {
@@ -351,7 +593,6 @@ module.exports = {
 				console.error('Could not send welcome message to NT chat channel:', channelError);
 				// Don't fail the verification if channel message fails
 			}
-
 		}
 		catch (error) {
 			console.error('Error in /verifyuser command:', error);
