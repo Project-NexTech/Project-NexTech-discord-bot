@@ -570,6 +570,29 @@ module.exports = {
 				console.error('STAFF_CHAT_CHANNEL_ID not set in environment variables');
 			}
 
+			// Delete the ephemeral nickname conflict message if it exists
+			// This only applies if there was a manual nickname conflict resolution
+			const userId = targetUser.id;
+			if (interaction.client.verificationPending && interaction.client.verificationPending.has(userId)) {
+				const pendingData = interaction.client.verificationPending.get(userId);
+				try {
+					// Delete the original ephemeral message with the conflict warning
+					// Using Discord's webhook API: DELETE /webhooks/<app_id>/<token>/messages/@original
+					const originalInteraction = pendingData.interaction;
+					await originalInteraction.deleteReply();
+					console.log('Deleted ephemeral nickname conflict message');
+				} catch (deleteError) {
+					console.error('Could not delete ephemeral conflict message:', deleteError);
+					// Non-critical, continue with verification
+				}
+				
+				// Clear pending verification data
+				if (pendingData.timeoutId) {
+					clearTimeout(pendingData.timeoutId);
+				}
+				interaction.client.verificationPending.delete(userId);
+			}
+
 			// Send confirmation to the command user
 			await interaction.editReply({
 				content: `Successfully verified ${targetUser}. Details have been logged to <#${staffChatChannelId}>.`,
