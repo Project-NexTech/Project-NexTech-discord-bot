@@ -262,7 +262,7 @@ async function syncCalendarEvents(client) {
 			}
 		}
 
-		console.log(`[CalendarSync] Sync completed. Tracking ${eventMapping.size} event(s)`);
+		if(eventMapping.size > 0) { console.log(`[CalendarSync] Sync completed. Tracking ${eventMapping.size} event(s)`); }
 	} catch (error) {
 		console.error('[CalendarSync] Error during sync:', error);
 	}
