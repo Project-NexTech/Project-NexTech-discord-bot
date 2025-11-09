@@ -55,6 +55,33 @@ for (const file of eventFiles) {
 	}
 }
 
+// Global error handlers to prevent crashes
+process.on('unhandledRejection', (error) => {
+	console.error('❌ Unhandled Promise Rejection:', error);
+	console.error('Stack trace:', error.stack);
+	// Don't exit - keep the bot running
+});
+
+process.on('uncaughtException', (error) => {
+	console.error('❌ Uncaught Exception:', error);
+	console.error('Stack trace:', error.stack);
+	// For uncaught exceptions, we should exit gracefully
+	// but give time to log the error
+	setTimeout(() => {
+		console.error('Exiting due to uncaught exception...');
+		process.exit(1);
+	}, 1000);
+});
+
+// Discord.js specific error handlers
+client.on('error', (error) => {
+	console.error('❌ Discord Client Error:', error);
+});
+
+client.on('warn', (warning) => {
+	console.warn('⚠️ Discord Client Warning:', warning);
+});
+
 client.login(token);
 
 // Windows-specific workaround for SIGINT (Ctrl+C) handling
