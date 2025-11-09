@@ -208,13 +208,48 @@ View volunteer hours for yourself or another member.
 **Cooldown:** 5 seconds  
 **Options:**
 - `user` (optional) - User to check hours for (defaults to yourself)
-- `events` (optional) - Number of recent events to display (1-50, default: 10)
+- `requests` (optional) - Number of recent requests to display (1-10)
 
 **Features:**
-- Fetches hours from Google Sheets
-- Displays total hours
+
+**Default Behavior (no `requests` parameter):**
+- Displays total volunteer hours summary
 - Shows user's profile picture
+- Fetches data from "Member Hours Tracker" sheet
 - Formatted with timestamps
+
+**With `requests` parameter:**
+- Displays recent hour verification requests
+- Shows the most recent N requests (sorted by submission order)
+- Fetches data from "Hour Verification" sheet
+- For each request, displays:
+  - Request number (row in sheet)
+  - Hours requested
+  - Approval status (✅ Approved, ⏳ Pending, ❓ Other)
+  - Department
+  - Date
+  - Type of task
+  - Description of task
+- Special handling:
+  - **Denied requests:** Shows status but hides hours details
+  - **Missing requests:** Shows placeholder for positions without data
+  - Shows total count if more requests exist than displayed
+- Data pulled from Google Sheets columns:
+  - Column A: Name (for matching)
+  - Column B: Hours
+  - Column C: Verdict (Approved/Denied/Pending)
+  - Column D: Department
+  - Column E: Date
+  - Column H: Type of task
+  - Column I: Description
+
+**Examples:**
+```
+/hours                          → Shows your total hours
+/hours user:@John              → Shows John's total hours
+/hours requests:5              → Shows your last 5 verification requests
+/hours user:@John requests:3   → Shows John's last 3 requests
+```
 
 ---
 

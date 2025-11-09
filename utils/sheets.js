@@ -148,6 +148,87 @@ class SheetsManager {
 	}
 
 	/**
+	 * Get recent hour verification requests for a user
+	 * @param {string} discordUserId - Discord user ID
+	 * @param {number} limit - Number of recent requests to return
+	 * @returns {Promise<Object>} Object with name and array of recent requests
+	 */
+	async getHourVerificationRequests(discordUserId, limit = 10) {
+		// First, get the user's full name from the volunteers sheet
+		const privateSheetId = process.env.VOLUNTEERS_SHEET_ID;
+		const privateResponse = await this.safeApiCall(
+			() => this.sheets.spreadsheets.values.get({
+				spreadsheetId: privateSheetId,
+				range: '\'Limited Data\'!A:E',
+			}),
+			'getHourVerificationRequests (fetch user name)'
+		);
+
+		if (!privateResponse || !privateResponse.data || !privateResponse.data.values) {
+			console.error('❌ Failed to get volunteer data from Google Sheets');
+			return null;
+		}
+
+		const privateRows = privateResponse.data.values;
+		const volunteerRow = privateRows.slice(1).find(row => row[4] === discordUserId);
+		if (!volunteerRow) {
+			return null;
+		}
+
+		const userName = volunteerRow[0];
+
+		// Fetch from "Hour Verification" sheet
+		// Columns: A=Name, B=Hours, C=Verdict, D=Department, E=Date, H=Type, I=Description
+		const eventsSheetId = process.env.EVENTS_SHEET_ID;
+		const response = await this.safeApiCall(
+			() => this.sheets.spreadsheets.values.get({
+				spreadsheetId: eventsSheetId,
+				range: '\'Hour Verification\'!A:I',
+			}),
+			'getHourVerificationRequests (fetch verification data)'
+		);
+
+		if (!response || !response.data || !response.data.values) {
+			console.error('❌ Failed to get hour verification data from Google Sheets');
+			return { name: userName, requests: [] };
+		}
+
+		const rows = response.data.values;
+		// Skip rows 1 and 2 (header rows)
+		if (rows.length <= 2) {
+			return { name: userName, requests: [] };
+		}
+
+		// Find all requests for this user (case-insensitive name matching)
+		const userRequests = [];
+		for (let i = 2; i < rows.length; i++) {
+			const row = rows[i];
+			const rowName = row[0] ? row[0].trim() : '';
+			
+			if (rowName.toLowerCase() === userName.toLowerCase()) {
+				userRequests.push({
+					rowNumber: i + 1, // Store for sorting (1-indexed)
+					hours: row[1] || 'N/A',
+					verdict: row[2] || 'Pending',
+					department: row[3] || 'N/A',
+					date: row[4] || 'N/A',
+					type: row[7] || 'N/A', // Column H = index 7
+					description: row[8] || 'N/A', // Column I = index 8
+				});
+			}
+		}
+
+		// Sort by row number descending (most recent first)
+		userRequests.sort((a, b) => b.rowNumber - a.rowNumber);
+
+		// Return the most recent requests up to the limit
+		return {
+			name: userName,
+			requests: userRequests.slice(0, limit),
+		};
+	}
+
+	/**
 	 * Get upcoming events, optionally filtered by department
 	 * Sheet is organized by COLUMNS (each column = one event date)
 	 * Department mapping: 1=Engineering, 2=Mentoring, 3=Programming, 4=Physics/Math, 5=Natural Sciences
