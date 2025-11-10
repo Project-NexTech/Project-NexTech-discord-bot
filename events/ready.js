@@ -1,6 +1,7 @@
 const { Events } = require('discord.js');
 const sheetsManager = require('../utils/sheets');
 const { startCalendarSync } = require('../utils/calendarSync');
+const memberCache = require('../utils/memberCache');
 
 module.exports = {
 	name: Events.ClientReady,
@@ -8,15 +9,34 @@ module.exports = {
 	async execute(client) {
 		console.log(`Ready! Logged in as ${client.user.tag}`);
 		
-		// Fetch all guild members to populate cache (for nickname conflict detection)
-		try {
-			for (const guild of client.guilds.cache.values()) {
-				const memberCount = await guild.members.fetch();
-				console.log(`✅ Cached ${memberCount.size} members from guild: ${guild.name}`);
+		// Load persistent member cache from disk
+		console.log('📂 Loading member cache from disk...');
+		memberCache.load();
+		
+		// Fetch all guild members to populate cache (for nickname conflict detection and broadcasts)
+		const fetchAllMembers = async () => {
+			try {
+				for (const guild of client.guilds.cache.values()) {
+					console.log(`🔄 Fetching members for guild: ${guild.name}...`);
+					const members = await guild.members.fetch({ force: true });
+					console.log(`✅ Cached ${members.size} members from guild: ${guild.name}`);
+					
+					// Update persistent cache
+					memberCache.updateFromGuild(members);
+				}
+			} catch (error) {
+				console.error('⚠️ Failed to fetch guild members:', error.message);
 			}
-		} catch (error) {
-			console.error('⚠️ Failed to fetch guild members:', error.message);
-		}
+		};
+
+		// Initial fetch (even if we loaded from disk, we want fresh data)
+		await fetchAllMembers();
+
+		// Refresh member cache every 15 minutes to keep it warm
+		setInterval(async () => {
+			console.log('🔄 Refreshing member cache...');
+			await fetchAllMembers();
+		}, 15 * 60 * 1000); // 15 minutes
 		
 		// Initialize Google Sheets API
 		try {

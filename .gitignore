@@ -3,6 +3,10 @@ node_modules
 config.json
 credentials.json
 
+# Cache data
+data/*
+!data/.gitkeep
+
 # OS files
 .DS_Store
 Thumbs.db

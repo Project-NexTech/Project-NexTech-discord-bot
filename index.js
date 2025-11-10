@@ -3,6 +3,7 @@ const path = require('node:path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const fs = require('node:fs');
 const { Client, Collection, GatewayIntentBits, Partials, ActivityType } = require('discord.js');
+const memberCache = require('./utils/memberCache');
 
 // Load token from environment variable
 const token = process.env.DISCORD_TOKEN;
@@ -65,8 +66,15 @@ process.on('unhandledRejection', (error) => {
 process.on('uncaughtException', (error) => {
 	console.error('❌ Uncaught Exception:', error);
 	console.error('Stack trace:', error.stack);
+	// Save member cache before exiting
+	try {
+		console.log('💾 Saving member cache before exit...');
+		memberCache.save();
+	} catch (saveError) {
+		console.error('Failed to save cache:', saveError.message);
+	}
 	// For uncaught exceptions, we should exit gracefully
-	// but give time to log the error
+	// but give time to log the error and save data
 	setTimeout(() => {
 		console.error('Exiting due to uncaught exception...');
 		process.exit(1);
@@ -100,6 +108,10 @@ if (process.platform === "win32") {
 process.on("SIGINT", async function () {
 	console.log("\nGracefully shutting down...");
 	try {
+		// Save member cache before shutdown
+		console.log("💾 Saving member cache...");
+		memberCache.save();
+		
 		// Set bot status to invisible before destroying
 		await client.user?.setStatus('invisible');
 		console.log("Bot status set to invisible");

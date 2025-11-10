@@ -735,8 +735,13 @@ class SheetsManager {
 
 		const gridData = sheetData.data.sheets[0].data[0].rowData;
 
-		// Fetch all guild members
-		await guild.members.fetch();
+		// Check if member cache needs refreshing
+		if (guild.members.cache.size === 0) {
+			console.log('[CheckLeftUsers] Member cache empty, fetching members...');
+			await guild.members.fetch({ force: true });
+		} else {
+			console.log(`[CheckLeftUsers] Using cached members (${guild.members.cache.size} in cache)`);
+		}
 		
 		const batchUpdates = [];
 		let markedCount = 0;

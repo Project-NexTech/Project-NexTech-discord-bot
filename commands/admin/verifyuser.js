@@ -124,7 +124,11 @@ module.exports = {
 
 		try {
 			const targetUser = interaction.options.getUser('user');
-			const targetMember = await interaction.guild.members.fetch(targetUser.id);
+			// Try to get from cache first, then fetch if not found
+			let targetMember = interaction.guild.members.cache.get(targetUser.id);
+			if (!targetMember) {
+				targetMember = await interaction.guild.members.fetch(targetUser.id);
+			}
 			
 			// Get all required roles at the start
 			const ntUnverifiedRole = interaction.guild.roles.cache.find(role =>

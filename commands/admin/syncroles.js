@@ -67,7 +67,11 @@ module.exports = {
 				// Try to fetch the member from the guild
 				let guildMember;
 				try {
-					guildMember = await interaction.guild.members.fetch(data.discordId);
+					// Try to get from cache first, then fetch if not found
+					guildMember = interaction.guild.members.cache.get(data.discordId);
+					if (!guildMember) {
+						guildMember = await interaction.guild.members.fetch(data.discordId);
+					}
 				}
 				catch (fetchError) {
 					// User not in server
