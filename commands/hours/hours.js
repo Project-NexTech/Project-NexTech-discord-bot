@@ -50,8 +50,10 @@ module.exports = {
 					.setTimestamp()
 					.setFooter({ text: 'Project NexTech Hours System' });
 
-				// Add fields for each request
+				// Add fields for each request and track total hours
 				const requests = verificationData.requests;
+				let totalHoursShown = 0;
+				
 				for (let i = 0; i < requestsLimit; i++) {
 					if (i < requests.length) {
 						const req = requests[i];
@@ -62,7 +64,7 @@ module.exports = {
 						// Skip denied requests
 						if (req.verdict && req.verdict.toLowerCase() === 'denied') {
 							embed.addFields({
-								name: `${requestNumber}. Request #${requestNumber}`,
+								name: `${requestNumber}. Request #${requestNumber} ❌`,
 								value: `**Status:** ${req.verdict}\n*This request was denied and hours were not given.*`,
 								inline: false,
 							});
@@ -70,7 +72,15 @@ module.exports = {
 							// Format the request details
 							const hoursValue = req.hours !== 'N/A' ? `**${req.hours} hours**` : 'Not specified';
 							const statusEmoji = req.verdict.toLowerCase() === 'approved' ? '✅' : 
-							                    req.verdict.toLowerCase() === 'pending' ? '⏳' : '❓';
+							                    req.verdict.toLowerCase() === 'unverified' ? '⏳' : '❓';
+							
+							// Add to total if hours is a valid number
+							if (req.hours !== 'N/A') {
+								const hoursNum = parseFloat(req.hours);
+								if (!isNaN(hoursNum)) {
+									totalHoursShown += hoursNum;
+								}
+							}
 							
 							embed.addFields({
 								name: `${requestNumber}. Request #${requestNumber} ${statusEmoji}`,
@@ -100,6 +110,13 @@ module.exports = {
 						`Showing the ${requestsLimit} most recent request(s) out of ${requests.length} total`
 					);
 				}
+
+				// Add total hours field at the bottom
+				embed.addFields({
+					name: '📊 Total Hours (Shown Requests)',
+					value: `**${totalHoursShown.toFixed(2)} hours**\n*Sum of all approved/pending hours shown above (excluding denied requests)*`,
+					inline: false,
+				});
 
 				return interaction.editReply({ embeds: [embed] });
 			}
