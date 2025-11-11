@@ -59,12 +59,16 @@ class MemberCache {
 		this.cache.clear();
 		
 		for (const [id, member] of members) {
+			// Skip bots - we don't need to interact with them
+			if (member.user.bot) {
+				continue;
+			}
+
 			// Store minimal data needed
 			this.cache.set(id, {
 				id: member.id,
 				username: member.user.username,
 				displayName: member.displayName,
-				bot: member.user.bot,
 				roles: Array.from(member.roles.cache.keys()),
 				joinedAt: member.joinedAt?.toISOString(),
 			});

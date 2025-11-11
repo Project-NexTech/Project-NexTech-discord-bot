@@ -26,6 +26,8 @@ A comprehensive Discord bot built with Discord.js v14 for managing the Project N
 - **Event Management** - View and filter upcoming events by department
 - **Contact Directory** - Quick access to leadership contact information
 - **Role Management** - Automated role assignment based on membership status
+- **Region & Country Roles** - Create and manage geographic roles with proper formatting
+- **Member Cache System** - Persistent caching for improved performance
 - **DM Forwarding** - Forward direct messages to verification team
 - **Broadcast System** - Send announcements to all members via DM
 
@@ -53,6 +55,43 @@ Send a direct message to all NT Members.
 - Tracks success/failure counts
 - Reports delivery statistics
 - Rate-limited to avoid API limits
+
+---
+
+#### `/createregion`
+Create a new region role with proper formatting, ordering, and optional member assignment.
+
+**Permissions:** NT Executive Committee only  
+**Cooldown:** None  
+**Options:**
+- `region_name` (required) - Name of the region (e.g., "Ontario")
+- `country_code` (required) - Two-letter country code (e.g., "CA")
+- `country_name` (required) - Full country name (e.g., "Canada")
+- `members` (optional) - Comma-separated member IDs to add to roles
+
+**Features:**
+- **Automatic Role Naming:** Creates roles in the format:
+  - Region: `RegionName (CC #)` (e.g., "Ontario (CA 1)")
+  - Country: `CountryName (CC)` (e.g., "Canada (CA)")
+- **Auto-Numbering:** Automatically assigns the next sequential number for regions within the same country
+- **Smart Country Role Handling:** 
+  - Checks if country role already exists
+  - Creates new country role if needed
+  - Uses existing country role if available
+- **Automatic Role Positioning:** Places roles in the correct hierarchy:
+  - Country roles above region roles
+  - Maintains consistent ordering
+  - Places above base roles, below administrative roles
+- **Batch Member Assignment:** Optionally adds multiple members to both country and region roles
+- **Validation:** Checks for existing roles and validates member IDs before creation
+- **Interactive Confirmation:** Shows preview with confirmation buttons before creating roles
+- **Error Handling:** Reports which members were successfully added and which failed
+
+**Example Usage:**
+```
+/createregion region_name:Ontario country_code:CA country_name:Canada
+/createregion region_name:Texas country_code:US country_name:United States members:123456789,987654321
+```
 
 ---
 
@@ -438,6 +477,18 @@ Uses Google Service Account authentication with OAuth 2.0. The service account m
 
 ## Automated Features
 
+### Member Cache System
+- **Purpose:** Improves performance for commands that need to check member data frequently
+- **Persistence:** Cache saved to `data/member-cache.json` on disk
+- **Auto-Refresh:** Updates every 15 minutes to keep data fresh
+- **Benefits:**
+  - Faster nickname conflict detection in `/verifyuser`
+  - Improved `/broadcast` command performance
+  - Reduces API calls to Discord
+  - Survives bot restarts (loads from disk on startup)
+- **Data Stored:** User ID, username, display name, roles, join date
+- **Exclusions:** Bot accounts are not cached
+
 ### Calendar Synchronization
 - **Frequency:** Every 5 minutes
 - **Function:** Creates Discord scheduled events from iCal feed
@@ -494,6 +545,7 @@ Project-NexTech-discord-bot/
 ├── commands/
 │   ├── admin/
 │   │   ├── broadcast.js        # Broadcast messages to all members
+│   │   ├── createregion.js     # Create region/country roles
 │   │   ├── syncroles.js        # Sync enrollment roles from Sheets
 │   │   └── verifyuser.js       # Manually verify new members
 │   ├── events/
@@ -509,14 +561,17 @@ Project-NexTech-discord-bot/
 │       └── requesthours.js     # Get hours request form
 ├── events/
 │   ├── ready.js                # Bot startup and initialization
-│   ├── interactionCreate.js   # Handle commands and autocomplete
+│   ├── interactionCreate.js   # Handle commands, autocomplete, and buttons
 │   ├── modalSubmit.js          # Handle verification modal
 │   ├── messageCreate.js        # Forward DMs to verification
 │   └── guildMemberUpdate.js    # Welcome new unverified members
 ├── utils/
 │   ├── sheets.js               # Google Sheets API integration
 │   ├── calendarSync.js         # Calendar synchronization
+│   ├── memberCache.js          # Persistent member cache system
 │   └── helpers.js              # Utility functions and embed builders
+├── data/
+│   └── member-cache.json       # Cached member data (auto-generated)
 ├── index.js                    # Main bot entry point
 ├── deploy-commands.js          # Command deployment script
 ├── delete-command.js           # Remove commands (utility)
@@ -537,7 +592,9 @@ Project-NexTech-discord-bot/
 - **deploy-commands.js** - Registers slash commands with Discord API
 - **utils/sheets.js** - Handles all Google Sheets operations
 - **utils/calendarSync.js** - Syncs iCal events to Discord scheduled events
-- **utils/helpers.js** - Reusable functions and embed creators
+- **utils/memberCache.js** - Persistent member data caching system
+- **utils/helpers.js** - Reusable functions and embed builders
+- **events/interactionCreate.js** - Handles slash commands, autocomplete, and button interactions (including nickname conflict resolution)
 
 ## Dependencies
 
@@ -611,9 +668,9 @@ GPL-3.0 License
 
 ## Author
 
-Project NexTech Development Team + Claude Sonnet 4.5
+Project NexTech Development Team (Daniel) + Claude Sonnet 4.5
 
 ---
 
 **Version:** 1.0.0  
-**Last Updated:** October 31, 2025
+**Last Updated:** November 10, 2025
