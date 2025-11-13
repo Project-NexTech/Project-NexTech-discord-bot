@@ -280,6 +280,11 @@ class SheetsManager {
 			const dateCell = rows[0] && rows[0][col] ? String(rows[0][col]) : '';
 			if (!dateCell.trim()) continue;
 
+			// Skip placeholder dates (exactly "Mon XX, XXXX")
+			if (dateCell.trim().toLowerCase() === 'mon xx, xxxx') {
+				continue;
+			}
+
 			// Validate and parse the date value
 			const parsed = Date.parse(dateCell);
 			if (Number.isNaN(parsed)) continue; // Skip cells that aren't valid dates

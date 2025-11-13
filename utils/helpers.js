@@ -79,14 +79,21 @@ function createHoursEmbed(volunteerData, user) {
  * Create an embed for events display
  * @param {Array} events - Array of event objects
  * @param {string|null} department - Department filter
+ * @param {number} currentPage - Current page number (1-indexed)
+ * @param {number} totalPages - Total number of pages
  * @returns {EmbedBuilder} Discord embed
  */
-function createEventsEmbed(events, department = null) {
+function createEventsEmbed(events, department = null, currentPage = 1, totalPages = 1) {
 	const { EmbedBuilder } = require('discord.js');
 	
-	const title = department && department !== 'all'
-		? `📅 Upcoming Events for ${department}`
-		: '📅 All Upcoming Events';
+	let title = department && department !== 'all'
+		? `Upcoming Events for ${department}`
+		: 'All Upcoming Events';
+	
+	// Add page info to title if there are multiple pages
+	if (totalPages > 1) {
+		title += ` (Page ${currentPage}/${totalPages})`;
+	}
 
 	const embed = new EmbedBuilder()
 		.setColor(0x5865F2)
@@ -98,6 +105,11 @@ function createEventsEmbed(events, department = null) {
 		embed.setDescription('No upcoming events found.');
 		return embed;
 	}
+
+	// Discord has a limit of 25 fields per embed
+	// Each event takes 1 field, separators take 1 field each
+	// So we can show max 13 events (13 events + 12 separators = 25 fields)
+	// Note: The events array is already sliced to the correct page size by the caller
 
 	// Create fields for each event (following the sheet's row order)
 	events.forEach((event, idx) => {
