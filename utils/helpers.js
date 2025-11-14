@@ -115,9 +115,9 @@ function createEventsEmbed(events, department = null, currentPage = 1, totalPage
 	events.forEach((event, idx) => {
 		// Title: Date and Day of Week (with Undecided highlight)
 		// Use separator and bold for emphasis
-		let eventTitle = `📅 **${event.date}** - ${event.dayOfWeek}\n`;
+		let eventTitle = `📅 **${event.date}** - ${event.dayOfWeek}`;
 		if (event.isUndecided) {
-			eventTitle = `⚠️ **${event.date}** - ${event.dayOfWeek} **(UNDECIDED)**\n`;
+			eventTitle = `⚠️ **${event.date}** - ${event.dayOfWeek} **(UNDECIDED)**`;
 		}
 
 		// Build field value in the same order as the sheet
@@ -125,48 +125,47 @@ function createEventsEmbed(events, department = null, currentPage = 1, totalPage
 		
 		// Comment
 		if (event.comment) {
-			fieldValue += `💬 **Comment:** ${event.comment}\n\n`;
+			fieldValue += `💬 **Comment:** ${event.comment}\n`;
 		}
 		
 		// Status
 		if (event.status) {
 			// Highlight "NO SIGNUPS" status with bold and warning emoji
 			if (event.status === 'NO SIGNUPS') {
-				fieldValue += `📊 **Status: ⚠️ NO SIGNUPS ⚠️**\n\n`;
+				fieldValue += `📊 **Status: ⚠️ NO SIGNUPS ⚠️**\n`;
 			} else {
-				fieldValue += `📊 **Status:** ${event.status}\n\n`;
+				fieldValue += `📊 **Status:** ${event.status}\n`;
 			}
 		}
 		
 		// Course Selection
 		if (event.courseSelection) {
-			fieldValue += `📚 **Course:** ${event.courseSelection}\n\n`;
+			fieldValue += `📚 **Course:** ${event.courseSelection}\n`;
 		}
 		
 		// Region
 		if (event.region) {
-			fieldValue += `🌎 **Region:** ${event.region}\n\n`;
+			fieldValue += `🌎 **Region:** ${event.region}\n`;
 		}
 		
 		// Depart Time
 		if (event.departTime) {
-			fieldValue += `🕐 **Time:** ${event.departTime}\n\n`;
+			fieldValue += `🕐 **Time:** ${event.departTime}\n`;
 		}
 		
 		// Credit (hours)
 		if (event.credit) {
-			fieldValue += `⏱️ **Hours:** ${event.credit}\n\n`;
+			fieldValue += `⏱️ **Hours:** ${event.credit}\n`;
 		}
 		
 		// Location
 		if (event.location) {
-			// Add double newline only if there's a note coming after
-			fieldValue += `📍 **Location:** ${event.location}${event.note ? '\n\n' : '\n'}`;
+			fieldValue += `📍 **Location:** ${event.location}\n`;
 		}
 		
 		// Note
 		if (event.note) {
-			fieldValue += `📝 **Note:** ${event.note}\n\n`;
+			fieldValue += `📝 **Note:** ${event.note}\n`;
 		}
 
 		// Remove trailing newlines
@@ -176,20 +175,16 @@ function createEventsEmbed(events, department = null, currentPage = 1, totalPage
 			fieldValue = 'No additional details available.';
 		}
 
+		// Add separator to the end of field value if this isn't the last event
+		if (idx < events.length - 1) {
+			fieldValue += '\n─────────────────────────────────';
+		}
+
 		embed.addFields({
 			name: eventTitle,
 			value: fieldValue,
 			inline: false,
 		});
-
-		// Add a separator field between events (except after the last one)
-		if (idx < events.length - 1) {
-			embed.addFields({
-				name: '\u200B',
-				value: '─────────────────────────────────',
-				inline: false,
-			});
-		}
 	});
 
 	return embed;
