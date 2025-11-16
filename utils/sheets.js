@@ -740,19 +740,14 @@ class SheetsManager {
 
 		const gridData = sheetData.data.sheets[0].data[0].rowData;
 
-		// Ensure member cache is populated - always fetch to be safe
-		console.log('[CheckLeftUsers] Fetching all guild members...');
-		try {
-			const fetchedMembers = await guild.members.fetch({ force: true });
-			console.log(`[CheckLeftUsers] Fetched ${fetchedMembers.size} members from guild`);
-			
-			// Verify we actually got members
-			if (fetchedMembers.size === 0) {
-				console.error('[CheckLeftUsers] Failed to fetch guild members - cache is empty!');
-				return { checked: 0, marked: 0, skipped: 0 };
-			}
-		} catch (error) {
-			console.error('[CheckLeftUsers] Error fetching guild members:', error.message);
+		// Ensure member cache is populated
+		console.log('[CheckLeftUsers] Checking member cache...');
+		
+		// Use existing cache if it's already populated from the ready event
+		if (guild.members.cache.size > 0) {
+			console.log(`[CheckLeftUsers] Using cached members (${guild.members.cache.size} in cache)`);
+		} else {
+			console.log('[CheckLeftUsers] Cache is empty - cannot verify members. Aborting to prevent false positives.');
 			return { checked: 0, marked: 0, skipped: 0 };
 		}
 		
