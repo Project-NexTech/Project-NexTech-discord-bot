@@ -44,7 +44,7 @@ module.exports = {
 			try {
 				const welcomeMessage = `Welcome to **Project NexTech**, ${newMember.user.username}! 🎉\n\n` +
 					`**Getting Started:**\n` +
-					`• Use \`/verify\` to gain access to the rest of the server. **You must do this first before doing anything else.**\n` +
+					`• Use \`/verify\` in <#1293450435147075585> to gain access to the rest of the server. **You must do this first before doing anything else.**\n` +
 					`• Get roles in <#1231777272906649670> \n` +
 					`• Use \`/events\` to see upcoming events\n` +
 					`• Use \`/hours\` to track your volunteer hours\n` +
