@@ -66,7 +66,7 @@ module.exports = {
 				.addFields(
 					{ 
 						name: '✅ How to Verify', 
-						value: 'Run the `/verify` command to fill out a quick verification form. Our team will review it and grant you access shortly!',
+						value: 'Run the `/verify` command in <#1293450435147075585> to fill out a quick verification form. Our team will review it and grant you access shortly!',
 					},
 					{ 
 						name: '❓ Questions?', 
