@@ -3,17 +3,24 @@ const { PermissionFlagsBits } = require('discord.js');
 /**
  * Check if user has required role or permissions
  * @param {GuildMember} member - Discord guild member
- * @param {string[]} roleNames - Array of allowed role names
+ * @param {string[]} roleIds - Array of allowed role IDs
  * @returns {boolean} Whether user has permission
  */
-function hasRequiredRole(member, roleNames) {
+function hasRequiredRole(member, roleIds = []) {
 	// Check if user is administrator
 	if (member.permissions.has(PermissionFlagsBits.Administrator)) {
 		return true;
 	}
 
-	// Check if user has any of the required roles
-	return member.roles.cache.some(role => roleNames.includes(role.name));
+	// Check if user has any of the required roles by ID
+	if (roleIds.length > 0) {
+		const hasRoleId = member.roles.cache.some(role => roleIds.includes(role.id));
+		if (hasRoleId) {
+			return true;
+		}
+	}
+
+	return false;
 }
 
 /**
@@ -22,7 +29,7 @@ function hasRequiredRole(member, roleNames) {
  * @returns {string[]} Array of department names
  */
 function getUserDepartments(member) {
-	const departmentRoles = ['Education', 'Outreach', 'Marketing', 'Technology', 'Finance'];
+	const departmentRoles = [];
 	return member.roles.cache
 		.filter(role => departmentRoles.includes(role.name))
 		.map(role => role.name);

@@ -15,13 +15,15 @@ module.exports = {
 			console.log('[Broadcast] Command started');
 			
 			// Check if user has required role
-			const allowedRoles = ['NT Executive Committee'];
+			const allowedRoleIds = [
+				process.env.EC_ROLE_ID
+			].filter(Boolean); // Filter out undefined values
 			const member = interaction.member;
 
-			if (!hasRequiredRole(member, allowedRoles)) {
+			if (!hasRequiredRole(member, allowedRoleIds)) {
 				console.log('[Broadcast] User does not have required role');
 				return interaction.reply({
-					content: '❌ You do not have permission to use this command. Only EC members can broadcast messages.',
+					content: '❌ You do not have permission to use this command. EC and Administrators can broadcast messages.',
 					flags: MessageFlags.Ephemeral,
 				});
 			}

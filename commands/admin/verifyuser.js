@@ -110,12 +110,15 @@ module.exports = {
 	},
 	async execute(interaction) {
 		// Check if user has required role or permissions
-		const allowedRoles = ['Verification Team', 'EC', 'Leadership'];
+		const allowedRoleIds = [
+			process.env.VERIFICATION_TEAM_ROLE_ID,
+			process.env.EC_ROLE_ID,
+		].filter(Boolean); // Filter out undefined values
 		const member = interaction.member;
 
-		if (!hasRequiredRole(member, allowedRoles) && !member.permissions.has(PermissionFlagsBits.Administrator)) {
+		if (!hasRequiredRole(member, allowedRoleIds)) {
 			return interaction.reply({
-				content: '❌ You do not have permission to use this command. Only Verification Team members, EC, Leadership, and Administrators can verify users.',
+				content: '❌ You do not have permission to use this command. Only EC and Administrators can verify users.',
 				flags: MessageFlags.Ephemeral,
 			});
 		}
