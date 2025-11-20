@@ -130,7 +130,7 @@ async function createDiscordEvent(guild, calendarEvent) {
 		
 		const discordEvent = await guild.scheduledEvents.create({
 			name: 'Project NexTech Info Session',
-			description: `placeholder description`,
+			description: 'Are you new to Project NexTech or are you curious what it\'s all about? Attend this 45-minute interactive presentation where student leaders will show you what we\'re all about, what you can do as a volunteer (by yourself or in a group), what you get out of volunteering, and how to get started. See you then!',
 			scheduledStartTime: calendarEvent.start,
 			scheduledEndTime: calendarEvent.end,
 			privacyLevel: GuildScheduledEventPrivacyLevel.GuildOnly,
