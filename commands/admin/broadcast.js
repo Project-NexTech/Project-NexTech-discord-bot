@@ -2,14 +2,25 @@ const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags, Ac
 const { hasRequiredRole } = require('../../utils/helpers');
 
 module.exports = {
-	cooldown: 60, // 1 minute cooldown to prevent spam
+	cooldown: 30, // 30 seconds cooldown to prevent spam
 	data: new SlashCommandBuilder()
 		.setName('broadcast')
 		.setDescription('Send a DM to all NT Members')
 		.addStringOption(option =>
 			option.setName('message')
 				.setDescription('The message to broadcast')
-				.setRequired(true)),
+				.setRequired(true))
+		.addStringOption(option =>
+			option.setName('recipients')
+				.setDescription('Who to send the message to')
+				.setRequired(true)
+				.addChoices(
+					{ name: 'All NT Members', value: 'all' },
+					{ name: 'Enrolled Only', value: 'enrolled' },
+					{ name: 'Unenrolled Only', value: 'unenrolled' },
+					{ name: 'Unverified Only', value: 'unverified' },
+					{ name: 'Paused Only', value: 'paused' }
+				)),
 	async execute(interaction) {
 		try {
 			console.log('[Broadcast] Command started');
@@ -30,24 +41,29 @@ module.exports = {
 
 			console.log('[Broadcast] Permission check passed');
 			
+			const recipientType = interaction.options.getString('recipients');
+			
+			// Check if paused feature
+			if (recipientType === 'paused') {
+				return interaction.reply({
+					content: '❌ This feature is not currently available.',
+					flags: MessageFlags.Ephemeral,
+				});
+			}
+			
 			// Defer reply early to prevent timeout
-			await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+			await interaction.deferReply();
 			console.log('[Broadcast] Reply deferred');
 			
 			const message = interaction.options.getString('message');
 
-			// Get the NT Member role to count recipients
+			// Determine which role(s) to filter by based on recipient type
+			let targetMembers;
+			let recipientDescription;
+			
+			// Get the NT Member role
 			const ntMemberRoleId = process.env.NT_MEMBER_ROLE_ID;
 			console.log('[Broadcast] NT Member Role ID:', ntMemberRoleId);
-			
-			const ntMemberRole = interaction.guild.roles.cache.get(ntMemberRoleId);
-
-			if (!ntMemberRole) {
-				console.log('[Broadcast] NT Member role not found');
-				return interaction.editReply({
-					content: `❌ Could not find NT Member role with ID: ${ntMemberRoleId}`,
-				});
-			}
 
 			console.log('[Broadcast] Checking member cache...');
 			// Check if we need to fetch members (cache might be cold)
@@ -60,15 +76,78 @@ module.exports = {
 				console.log(`[Broadcast] Using cached members (${interaction.guild.members.cache.size} in cache)`);
 			}
 			
-			const ntMembers = interaction.guild.members.cache.filter(m => 
-				m.roles.cache.has(ntMemberRoleId) && !m.user.bot
-			);
+			if (recipientType === 'all') {
+				// All NT Members (current behavior)
+				const ntMemberRole = interaction.guild.roles.cache.get(ntMemberRoleId);
+				if (!ntMemberRole) {
+					console.log('[Broadcast] NT Member role not found');
+					return interaction.editReply({
+						content: `❌ Could not find NT Member role with ID: ${ntMemberRoleId}`,
+					});
+				}
+				
+				targetMembers = interaction.guild.members.cache.filter(m => 
+					m.roles.cache.has(ntMemberRoleId) && !m.user.bot
+				);
+				recipientDescription = 'All NT Members';
+				
+			} else if (recipientType === 'enrolled') {
+				// NT Enrolled only
+				const ntEnrolledRole = interaction.guild.roles.cache.find(role =>
+					role.name.toLowerCase().includes('nt enrolled')
+				);
+				
+				if (!ntEnrolledRole) {
+					return interaction.editReply({
+						content: '❌ Could not find NT Enrolled role. Please check role names.',
+					});
+				}
+				
+				targetMembers = interaction.guild.members.cache.filter(m => 
+					m.roles.cache.has(ntEnrolledRole.id) && !m.user.bot
+				);
+				recipientDescription = 'NT Enrolled Members';
+				
+			} else if (recipientType === 'unenrolled') {
+				// NT Unenrolled only
+				const ntUnenrolledRole = interaction.guild.roles.cache.find(role =>
+					role.name.toLowerCase().includes('nt unenrolled')
+				);
+				
+				if (!ntUnenrolledRole) {
+					return interaction.editReply({
+						content: '❌ Could not find NT Unenrolled role. Please check role names.',
+					});
+				}
+				
+				targetMembers = interaction.guild.members.cache.filter(m => 
+					m.roles.cache.has(ntUnenrolledRole.id) && !m.user.bot
+				);
+				recipientDescription = 'NT Unenrolled Members';
+				
+			} else if (recipientType === 'unverified') {
+				// Unverified only (both NexTech Unverified and Combined Unverified)
+				const ntUnverifiedRoleId = process.env.NT_UNVERIFIED_ROLE_ID;
+				const combinedUnverifiedRoleId = process.env.COMBINED_UNVERIFIED_ROLE_ID;
+				
+				if (!ntUnverifiedRoleId || !combinedUnverifiedRoleId) {
+					return interaction.editReply({
+						content: '❌ Unverified role IDs not configured in environment variables.',
+					});
+				}
+				
+				targetMembers = interaction.guild.members.cache.filter(m => {
+					if (m.user.bot) return false;
+					return m.roles.cache.has(ntUnverifiedRoleId) || m.roles.cache.has(combinedUnverifiedRoleId);
+				});
+				recipientDescription = 'Unverified Members';
+			}
 
-			console.log(`[Broadcast] Found ${ntMembers.size} NT Members`);
+			console.log(`[Broadcast] Found ${targetMembers.size} members for recipient type: ${recipientType}`);
 
-			if (ntMembers.size === 0) {
+			if (targetMembers.size === 0) {
 				return interaction.editReply({
-					content: '❌ No NT Members found to broadcast to.',
+					content: `❌ No ${recipientDescription} found to broadcast to.`,
 				});
 			}
 
@@ -89,10 +168,10 @@ module.exports = {
 			const previewEmbed = new EmbedBuilder()
 				.setColor(0xFFAA00)
 				.setTitle('⚠️ Broadcast Confirmation Required')
-				.setDescription(`You are about to send the following message to **${ntMembers.size} NT Member(s)**:`)
+				.setDescription(`You are about to send the following message to **${targetMembers.size} ${recipientDescription}**:`)
 				.addFields(
 					{ name: '📝 Message Preview', value: message },
-					{ name: '👥 Recipients', value: `${ntMembers.size} NT Members` }
+					{ name: '👥 Recipients', value: `${targetMembers.size} ${recipientDescription}` }
 				)
 				.setFooter({ text: 'Click "Send Broadcast" to confirm or "Cancel" to abort' })
 				.setTimestamp();
@@ -132,7 +211,7 @@ module.exports = {
 
 					// User confirmed, proceed with broadcast
 					await buttonInteraction.update({
-						content: `📤 Broadcasting message to ${ntMembers.size} NT Member(s)...\n\n**Message:**\n${message}`,
+						content: `📤 Broadcasting message to ${targetMembers.size} ${recipientDescription}...\n\n**Message:**\n${message}`,
 						embeds: [],
 						components: [],
 					});
@@ -142,7 +221,7 @@ module.exports = {
 					let failCount = 0;
 					const failedMembers = [];
 
-					for (const [memberId, member] of ntMembers) {
+					for (const [memberId, member] of targetMembers) {
 						try {
 							// Create an embed for the broadcast message
 							const embed = new EmbedBuilder()
@@ -190,7 +269,7 @@ module.exports = {
 						});
 					}
 
-					await interaction.followUp({ embeds: [reportEmbed], flags: MessageFlags.Ephemeral });
+					await interaction.followUp({ embeds: [reportEmbed]});
 					collector.stop();
 					
 				} catch (error) {
