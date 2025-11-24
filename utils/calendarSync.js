@@ -77,10 +77,10 @@ async function fetchCalendarEvents(calendarUrl) {
  */
 async function createDiscordEvent(guild, calendarEvent) {
 	try {
-		const stageChannelId = process.env.INFO_SESSION_CHANNEL_ID; // Using the correct env variable
+		const stageChannelId = process.env.INFO_SESSION_VOICE_CHANNEL_ID;
 		
 		if (!stageChannelId) {
-			console.error('[CalendarSync] INFO_SESSION_CHANNEL_ID not found in environment variables');
+			console.error('[CalendarSync] INFO_SESSION_VOICE_CHANNEL_ID not found in environment variables');
 			return null;
 		}
 		
@@ -229,8 +229,16 @@ async function syncCalendarEvents(client) {
 
 		// Process calendar events
 		for (const calendarEvent of calendarEvents) {
-			// Skip past events (more than 1 hour ago)
-			if (calendarEvent.start < new Date(Date.now() - 3600000)) {
+			// Skip past events (event end time has passed)
+			const eventEndTime = calendarEvent.end || calendarEvent.start;
+			if (eventEndTime < new Date()) {
+				// Remove from tracking if it was being tracked
+				const discordEventId = eventMapping.get(calendarEvent.uid);
+				if (discordEventId) {
+					console.log(`[CalendarSync] Removing past event from tracking: ${calendarEvent.summary}`);
+					eventMapping.delete(calendarEvent.uid);
+					saveEventMapping();
+				}
 				continue;
 			}
 
@@ -254,11 +262,32 @@ async function syncCalendarEvents(client) {
 		}
 
 		// Delete Discord events that no longer exist in calendar
+		// Don't delete past events from Discord, just remove from tracking
 		for (const [uid, discordEventId] of eventMapping.entries()) {
 			if (!currentCalendarUids.has(uid)) {
-				await deleteDiscordEvent(guild, discordEventId);
+				// Check if this event has already passed
+				const calendarEvent = calendarEvents.find(e => e.uid === uid);
+				const isPastEvent = calendarEvent && (calendarEvent.end || calendarEvent.start) < new Date();
+				
+				if (!isPastEvent) {
+					// Only delete from Discord if it's not a past event
+					await deleteDiscordEvent(guild, discordEventId);
+				}
+				
+				// Always remove from tracking
 				eventMapping.delete(uid);
 				saveEventMapping(); // Persist the deletion
+			}
+		}
+		
+		// Clean up any tracked events that have already occurred
+		// Only remove from tracking, don't delete from Discord
+		for (const calendarEvent of calendarEvents) {
+			const eventEndTime = calendarEvent.end || calendarEvent.start;
+			if (eventEndTime < new Date() && eventMapping.has(calendarEvent.uid)) {
+				console.log(`[CalendarSync] Cleaning up past event from tracking: ${calendarEvent.summary}`);
+				eventMapping.delete(calendarEvent.uid);
+				saveEventMapping();
 			}
 		}
 
