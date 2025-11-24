@@ -378,21 +378,73 @@ async function positionRoles(guild, countryRole, regionRole) {
 		// Build the position array
 		const rolePositions = [];
 
-		// Position region roles
+		// Position region roles grouped by country code
 		let currentPosition = regionBasePosition;
 		
-		// First, position the new region role (at the bottom of region roles)
-		rolePositions.push({
-			role: regionRole.id,
-			position: currentPosition++
-		});
-
-		// Then position existing region roles (older ones higher up)
-		for (const role of existingRegionRoles) {
-			rolePositions.push({
-				role: role.id,
-				position: currentPosition++
+		// Get the country code of the new region role
+		const newRegionMatch = regionRole.name.match(regionRolePattern);
+		const newRegionCountryCode = newRegionMatch ? newRegionMatch[2] : null;
+		
+		// Group all region roles (including new one) by country code
+		const allRegionRoles = [...existingRegionRoles, regionRole];
+		const rolesByCountry = new Map();
+		
+		for (const role of allRegionRoles) {
+			const match = role.name.match(regionRolePattern);
+			if (match) {
+				const countryCode = match[2];
+				if (!rolesByCountry.has(countryCode)) {
+					rolesByCountry.set(countryCode, []);
+				}
+				rolesByCountry.get(countryCode).push(role);
+			}
+		}
+		
+		// Sort each country's roles by region number (descending for Discord positioning)
+		// Discord positions work in reverse: higher position = higher in list
+		// So we sort descending (3, 2, 1) to display as ascending (1, 2, 3)
+		for (const [countryCode, roles] of rolesByCountry) {
+			roles.sort((a, b) => {
+				const aMatch = a.name.match(regionRolePattern);
+				const bMatch = b.name.match(regionRolePattern);
+				const aNum = aMatch ? parseInt(aMatch[3]) : 0;
+				const bNum = bMatch ? parseInt(bMatch[3]) : 0;
+				return bNum - aNum; // Descending order
 			});
+		}
+		
+		// Preserve the original order of country codes based on existing role positions
+		// First, get the order from existing region roles
+		const countryOrder = [];
+		const seenCountries = new Set();
+		
+		for (const role of existingRegionRoles) {
+			const match = role.name.match(regionRolePattern);
+			if (match) {
+				const countryCode = match[2];
+				if (!seenCountries.has(countryCode)) {
+					countryOrder.push(countryCode);
+					seenCountries.add(countryCode);
+				}
+			}
+		}
+		
+		// Add the new country code if it doesn't exist yet
+		if (newRegionCountryCode && !seenCountries.has(newRegionCountryCode)) {
+			countryOrder.push(newRegionCountryCode);
+		}
+		
+		// Position roles country by country in the preserved order
+		for (const countryCode of countryOrder) {
+			const roles = rolesByCountry.get(countryCode);
+			if (roles) {
+				for (const role of roles) {
+					rolePositions.push({
+						role: role.id,
+						position: currentPosition++
+					});
+				}
+			}
 		}
 
 		// Position country roles (above region roles)
