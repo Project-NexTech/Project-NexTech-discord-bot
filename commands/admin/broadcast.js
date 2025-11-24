@@ -2,7 +2,7 @@ const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags, Ac
 const { hasRequiredRole } = require('../../utils/helpers');
 
 module.exports = {
-	cooldown: 30, // 30 seconds cooldown to prevent spam
+	cooldown: 5,
 	data: new SlashCommandBuilder()
 		.setName('broadcast')
 		.setDescription('Send a DM to all NT Members')
@@ -220,9 +220,32 @@ module.exports = {
 					let successCount = 0;
 					let failCount = 0;
 					const failedMembers = [];
+					let messagesSentInCurrentMinute = 0;
+					let currentMinuteStart = Date.now();
 
 					for (const [memberId, member] of targetMembers) {
 						try {
+							// Check if we've hit the rate limit (5 DMs per second, ~300 per minute to be safe)
+							// Discord's actual limit is higher but we stay conservative
+							const now = Date.now();
+							const timeSinceMinuteStart = now - currentMinuteStart;
+							
+							// Reset counter every minute
+							if (timeSinceMinuteStart >= 60000) {
+								messagesSentInCurrentMinute = 0;
+								currentMinuteStart = now;
+								console.log('[Broadcast] Rate limit window reset');
+							}
+							
+							// If we've sent 250 messages in this minute, wait for the next minute
+							if (messagesSentInCurrentMinute >= 250) {
+								const waitTime = 60000 - timeSinceMinuteStart;
+								console.log(`[Broadcast] Rate limit approaching, waiting ${waitTime}ms before continuing...`);
+								await new Promise(resolve => setTimeout(resolve, waitTime));
+								messagesSentInCurrentMinute = 0;
+								currentMinuteStart = Date.now();
+							}
+							
 							// Create an embed for the broadcast message
 							const embed = new EmbedBuilder()
 								.setColor(0x0099FF)
@@ -236,14 +259,51 @@ module.exports = {
 
 							await member.send({ embeds: [embed] });
 							successCount++;
+							messagesSentInCurrentMinute++;
 						} catch (error) {
-							failCount++;
-							failedMembers.push(`${member.user.tag} (${member.user.id})`);
-							console.error(`[Broadcast] Failed to send DM to ${member.user.tag}:`, error.message);
+							// Check if it's a rate limit error
+							if (error.code === 50007) {
+								// Cannot send messages to this user
+								failCount++;
+								failedMembers.push(`${member.user.tag} (${member.user.id}) - DMs disabled`);
+								console.error(`[Broadcast] Cannot send DM to ${member.user.tag}: DMs disabled`);
+							} else if (error.code === 429 || error.httpStatus === 429) {
+								// Rate limited - wait and retry
+								const retryAfter = error.retry_after ? error.retry_after * 1000 : 5000;
+								console.log(`[Broadcast] Rate limited! Waiting ${retryAfter}ms before retrying...`);
+								await new Promise(resolve => setTimeout(resolve, retryAfter));
+								
+								// Retry sending to this member
+								try {
+									const embed = new EmbedBuilder()
+										.setColor(0x0099FF)
+										.setTitle('Message from Project NexTech Leadership')
+										.setDescription(message)
+										.setFooter({ 
+											text: `Sent by ${interaction.user.tag}`,
+											iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+										})
+										.setTimestamp();
+									
+									await member.send({ embeds: [embed] });
+									successCount++;
+									messagesSentInCurrentMinute++;
+									// Reset the rate limit window after being rate limited
+									currentMinuteStart = Date.now();
+								} catch (retryError) {
+									failCount++;
+									failedMembers.push(`${member.user.tag} (${member.user.id}) - ${retryError.message}`);
+									console.error(`[Broadcast] Retry failed for ${member.user.tag}:`, retryError.message);
+								}
+							} else {
+								failCount++;
+								failedMembers.push(`${member.user.tag} (${member.user.id}) - ${error.message}`);
+								console.error(`[Broadcast] Failed to send DM to ${member.user.tag}:`, error.message);
+							}
 						}
 
-						// Add a small delay to avoid rate limits
-						await new Promise(resolve => setTimeout(resolve, 500));
+						// Add a small delay between messages (200ms = 5 messages per second max)
+						await new Promise(resolve => setTimeout(resolve, 200));
 					}
 
 					// Send final report
