@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { hasRequiredRole } = require('../../utils/helpers');
+const sheetsManager = require('../../utils/sheets');
 
 module.exports = {
 	cooldown: 5,
@@ -42,14 +43,6 @@ module.exports = {
 			console.log('[Broadcast] Permission check passed');
 			
 			const recipientType = interaction.options.getString('recipients');
-			
-			// Check if paused feature
-			if (recipientType === 'paused') {
-				return interaction.reply({
-					content: '❌ This feature is not currently available.',
-					flags: MessageFlags.Ephemeral,
-				});
-			}
 			
 			// Defer reply early to prevent timeout
 			await interaction.deferReply();
@@ -141,6 +134,51 @@ module.exports = {
 					return m.roles.cache.has(ntUnverifiedRoleId) || m.roles.cache.has(combinedUnverifiedRoleId);
 				});
 				recipientDescription = 'Unverified Members';
+				
+			} else if (recipientType === 'paused') {
+				// Paused or Not a Member - fetch from Google Sheets
+				console.log('[Broadcast] Fetching membership status from Google Sheets...');
+				const membershipData = await sheetsManager.getMembershipStatus();
+				
+				if (!membershipData || membershipData.length === 0) {
+					return interaction.editReply({
+						content: '❌ Could not fetch membership data from Google Sheets.',
+					});
+				}
+				
+				// Filter for Paused or Not a Member status
+				const pausedMembers = membershipData.filter(data => 
+					data.status === 'Paused' || data.status === 'Not a Member'
+				);
+				
+				console.log(`[Broadcast] Found ${pausedMembers.length} paused/not a member entries in sheets`);
+				
+				if (pausedMembers.length === 0) {
+					return interaction.editReply({
+						content: '❌ No Paused or Not a Member users found in the membership sheet.',
+					});
+				}
+				
+				// Get Discord members for these users
+				const discordIds = pausedMembers.map(m => m.discordId).filter(Boolean);
+				const guildMembers = new Map();
+				
+				for (const discordId of discordIds) {
+					try {
+						let guildMember = interaction.guild.members.cache.get(discordId);
+						if (!guildMember) {
+							guildMember = await interaction.guild.members.fetch(discordId);
+						}
+						if (guildMember && !guildMember.user.bot) {
+							guildMembers.set(discordId, guildMember);
+						}
+					} catch (error) {
+						console.log(`[Broadcast] Could not fetch member ${discordId}: ${error.message}`);
+					}
+				}
+				
+				targetMembers = guildMembers;
+				recipientDescription = 'Paused/Not a Member Users';
 			}
 
 			console.log(`[Broadcast] Found ${targetMembers.size} members for recipient type: ${recipientType}`);
