@@ -7,6 +7,8 @@ class MemberCache {
 	constructor() {
 		this.cache = new Map();
 		this.lastUpdate = null;
+		this.previousSize = 0;
+		this.isInitialLoad = true;
 	}
 
 	/**
@@ -18,6 +20,7 @@ class MemberCache {
 				const data = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
 				this.cache = new Map(Object.entries(data.members || {}));
 				this.lastUpdate = data.lastUpdate ? new Date(data.lastUpdate) : null;
+				this.previousSize = this.cache.size;
 				console.log(`📂 Loaded ${this.cache.size} members from cache (last update: ${this.lastUpdate?.toLocaleString() || 'unknown'})`);
 				return true;
 			}
@@ -43,7 +46,13 @@ class MemberCache {
 			};
 
 			fs.writeFileSync(CACHE_FILE, JSON.stringify(data, null, 2));
-			console.log(`💾 Saved ${this.cache.size} members to cache`);
+			
+			// Only log if size changed or it's the initial load
+			if (this.isInitialLoad || this.cache.size !== this.previousSize) {
+				console.log(`💾 Saved ${this.cache.size} members to cache`);
+				this.previousSize = this.cache.size;
+			}
+			
 			return true;
 		} catch (error) {
 			console.error('⚠️ Failed to save member cache:', error.message);

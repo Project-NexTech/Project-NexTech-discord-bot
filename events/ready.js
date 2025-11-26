@@ -13,16 +13,35 @@ module.exports = {
 		console.log('📂 Loading member cache from disk...');
 		memberCache.load();
 		
+		// Track guild member counts to only log when changed
+		const guildMemberCounts = new Map();
+		
 		// Fetch all guild members to populate cache (for nickname conflict detection and broadcasts)
 		const fetchAllMembers = async () => {
 			try {
 				for (const guild of client.guilds.cache.values()) {
-					console.log(`🔄 Fetching members for guild: ${guild.name}...`);
+					const previousCount = guildMemberCounts.get(guild.id);
+					
+					// Only log "Fetching" on initial load
+					if (memberCache.isInitialLoad) {
+						console.log(`🔄 Fetching members for guild: ${guild.name}...`);
+					}
+					
 					const members = await guild.members.fetch({ force: true });
-					console.log(`✅ Cached ${members.size} members from guild: ${guild.name}`);
+					
+					// Only log if count changed or it's the initial load
+					if (memberCache.isInitialLoad || previousCount !== members.size) {
+						console.log(`✅ Cached ${members.size} members from guild: ${guild.name}`);
+						guildMemberCounts.set(guild.id, members.size);
+					}
 					
 					// Update persistent cache
 					memberCache.updateFromGuild(members);
+				}
+				
+				// Mark initial load as complete after first run
+				if (memberCache.isInitialLoad) {
+					memberCache.isInitialLoad = false;
 				}
 			} catch (error) {
 				console.error('⚠️ Failed to fetch guild members:', error.message);
