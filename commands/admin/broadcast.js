@@ -1,6 +1,10 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { hasRequiredRole } = require('../../utils/helpers');
 const sheetsManager = require('../../utils/sheets');
+const fs = require('fs');
+const path = require('path');
+const https = require('https');
+const http = require('http');
 
 module.exports = {
 	cooldown: 5,
@@ -20,8 +24,13 @@ module.exports = {
 					{ name: 'Enrolled Only', value: 'enrolled' },
 					{ name: 'Unenrolled Only', value: 'unenrolled' },
 					{ name: 'Unverified Only', value: 'unverified' },
-					{ name: 'Paused Only', value: 'paused' }
-				)),
+					{ name: 'Paused Only', value: 'paused' },
+					{ name: 'Custom List (CSV)', value: 'csv' }
+				))
+		.addStringOption(option =>
+			option.setName('csv_url')
+				.setDescription('URL to CSV file (only for Custom List option)')
+				.setRequired(false)),
 	async execute(interaction) {
 		try {
 			console.log('[Broadcast] Command started');
@@ -179,6 +188,118 @@ module.exports = {
 				
 				targetMembers = guildMembers;
 				recipientDescription = 'Paused/Not a Member Users';
+				
+			} else if (recipientType === 'csv') {
+				// Custom list from CSV
+				const csvUrl = interaction.options.getString('csv_url');
+				const defaultCsvPath = path.join(__dirname, '..', '..', 'data', 'broadcast-list.csv');
+				
+				let csvContent;
+				
+				if (csvUrl) {
+					// Download CSV from URL
+					console.log(`[Broadcast] Downloading CSV from URL: ${csvUrl}`);
+					try {
+						csvContent = await downloadFile(csvUrl);
+					} catch (error) {
+						return interaction.editReply({
+							content: `❌ Failed to download CSV from URL: ${error.message}`,
+						});
+					}
+				} else if (fs.existsSync(defaultCsvPath)) {
+					// Read from default file path
+					console.log(`[Broadcast] Reading CSV from file: ${defaultCsvPath}`);
+					try {
+						csvContent = fs.readFileSync(defaultCsvPath, 'utf8');
+					} catch (error) {
+						return interaction.editReply({
+							content: `❌ Failed to read CSV file: ${error.message}`,
+						});
+					}
+				} else {
+					return interaction.editReply({
+						content: '❌ No CSV source provided. Either provide a CSV URL or upload a CSV file using `/broadcastupload` first.',
+					});
+				}
+				
+				// Parse CSV and extract names from column B (skip first 6 rows)
+				const names = parseCSVNames(csvContent);
+				
+				if (names.length === 0) {
+					return interaction.editReply({
+						content: '❌ No names found in the CSV file (column B, skipping first 6 rows).',
+					});
+				}
+				
+				console.log(`[Broadcast] Found ${names.length} names in CSV`);
+				
+				// Fetch volunteer data to match names to Discord IDs
+				const volunteersSheetId = process.env.VOLUNTEERS_SHEET_ID;
+				const volunteersResponse = await sheetsManager.safeApiCall(
+					() => sheetsManager.sheets.spreadsheets.values.get({
+						spreadsheetId: volunteersSheetId,
+						range: '\'Limited Data\'!A:E',
+					}),
+					'broadcast CSV (fetch volunteer IDs)'
+				);
+				
+				if (!volunteersResponse || !volunteersResponse.data) {
+					return interaction.editReply({
+						content: '❌ Failed to fetch volunteer data from Google Sheets.',
+					});
+				}
+				
+				const volunteersRows = volunteersResponse.data.values || [];
+				
+				// Create name to Discord ID mapping
+				const nameToDiscordId = {};
+				volunteersRows.slice(1).forEach(row => {
+					const name = row[0];
+					const discordId = row[4];
+					if (name && discordId) {
+						const normalized = name.trim().toLowerCase();
+						nameToDiscordId[normalized] = discordId.trim();
+					}
+				});
+				
+				// Match names to Discord IDs
+				const discordIds = [];
+				const unmatchedNames = [];
+				
+				for (const name of names) {
+					const normalized = name.trim().toLowerCase();
+					const discordId = nameToDiscordId[normalized];
+					
+					if (discordId) {
+						discordIds.push(discordId);
+					} else {
+						unmatchedNames.push(name);
+					}
+				}
+				
+				console.log(`[Broadcast] Matched ${discordIds.length}/${names.length} names to Discord IDs`);
+				if (unmatchedNames.length > 0) {
+					console.log(`[Broadcast] Unmatched names: ${unmatchedNames.join(', ')}`);
+				}
+				
+				// Fetch Discord members
+				const guildMembers = new Map();
+				for (const discordId of discordIds) {
+					try {
+						let guildMember = interaction.guild.members.cache.get(discordId);
+						if (!guildMember) {
+							guildMember = await interaction.guild.members.fetch(discordId);
+						}
+						if (guildMember && !guildMember.user.bot) {
+							guildMembers.set(discordId, guildMember);
+						}
+					} catch (error) {
+						console.log(`[Broadcast] Could not fetch member ${discordId}: ${error.message}`);
+					}
+				}
+				
+				targetMembers = guildMembers;
+				recipientDescription = `Custom List (${names.length} names, ${guildMembers.size} matched)`;
 			}
 
 			console.log(`[Broadcast] Found ${targetMembers.size} members for recipient type: ${recipientType}`);
@@ -409,3 +530,95 @@ module.exports = {
 		}
 	},
 };
+
+/**
+ * Downloads a file from a URL
+ * @param {string} url - The URL to download from
+ * @returns {Promise<string>} The file content
+ */
+function downloadFile(url) {
+	return new Promise((resolve, reject) => {
+		const protocol = url.startsWith('https') ? https : http;
+		
+		protocol.get(url, (response) => {
+			if (response.statusCode !== 200) {
+				reject(new Error(`HTTP ${response.statusCode}: ${response.statusMessage}`));
+				return;
+			}
+			
+			let data = '';
+			response.on('data', (chunk) => {
+				data += chunk;
+			});
+			
+			response.on('end', () => {
+				resolve(data);
+			});
+		}).on('error', (error) => {
+			reject(error);
+		});
+	});
+}
+
+/**
+ * Parses CSV content and extracts names from column B (skipping first 6 rows)
+ * @param {string} csvContent - The CSV file content
+ * @returns {Array<string>} Array of names
+ */
+function parseCSVNames(csvContent) {
+	const lines = csvContent.split('\n');
+	const names = [];
+	
+	// Skip first 6 rows, then process remaining rows
+	for (let i = 6; i < lines.length; i++) {
+		const line = lines[i].trim();
+		if (!line) continue;
+		
+		// Simple CSV parsing (handles basic cases)
+		// Column B is the second column (index 1)
+		const columns = parseCSVLine(line);
+		
+		if (columns.length >= 2 && columns[1].trim()) {
+			names.push(columns[1].trim());
+		}
+	}
+	
+	return names;
+}
+
+/**
+ * Parses a single CSV line, handling quoted values
+ * @param {string} line - A single line from CSV
+ * @returns {Array<string>} Array of column values
+ */
+function parseCSVLine(line) {
+	const columns = [];
+	let currentColumn = '';
+	let inQuotes = false;
+	
+	for (let i = 0; i < line.length; i++) {
+		const char = line[i];
+		
+		if (char === '"') {
+			if (inQuotes && line[i + 1] === '"') {
+				// Escaped quote
+				currentColumn += '"';
+				i++; // Skip next quote
+			} else {
+				// Toggle quote state
+				inQuotes = !inQuotes;
+			}
+		} else if (char === ',' && !inQuotes) {
+			// End of column
+			columns.push(currentColumn);
+			currentColumn = '';
+		} else {
+			currentColumn += char;
+		}
+	}
+	
+	// Add last column
+	columns.push(currentColumn);
+	
+	return columns;
+}
