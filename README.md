@@ -42,19 +42,30 @@ A comprehensive Discord bot built with Discord.js v14 for managing the Project N
 ### Admin Commands
 
 #### `/broadcast`
-Send a direct message to all NT Members.
+Send a direct message to filtered groups of members.
 
-**Permissions:** NT Executive Committee only  
+**Permissions:** NT Executive Committee or Verification Team  
 **Cooldown:** 5 minutes  
 **Options:**
 - `message` (required) - The message to broadcast
+- `recipients` (required) - Choose who receives the message:
+  - **All NT Members** - Everyone with NT Member role
+  - **Enrolled** - Members with NT Enrolled role
+  - **Unenrolled** - Members with NT Unenrolled role
+  - **Unverified** - Members with unverified roles
+  - **Paused** - Members marked as Paused/Not a Member in Membership Status sheet
+  - **Custom CSV** - Members from a CSV file (see generate-broadcast-list.js)
+- `csv_url` (optional) - URL or file path to CSV when using Custom CSV option
 - `confirm` (required) - Must be set to `True` to confirm sending
 
 **Features:**
 - Sends embeds with sender information
 - Tracks success/failure counts
 - Reports delivery statistics
-- Rate-limited to avoid API limits
+- Rate-limited to 250 messages per minute with automatic retry
+- Supports filtering by role or Google Sheets data
+- CSV support with automatic parsing (skips first 6 rows, reads column B)
+- Handles HTTP/HTTPS URL downloads and local file paths
 
 ---
 
@@ -238,6 +249,29 @@ View upcoming events filtered by department.
   - Notes
 - Highlights undecided events with ⚠️
 - Department-based filtering
+- Pagination for large event lists (13 events per page)
+- Interactive navigation buttons
+
+---
+
+#### `/infosessions`
+Display all upcoming Project NexTech Info Session events from Discord.
+
+**Cooldown:** 5 seconds
+
+**Features:**
+- Fetches Discord scheduled events
+- Filters for "Project NexTech Info Session" events only
+- Shows only future events (ignores past sessions)
+- Displays for each session:
+  - Full date and time (Discord timestamp)
+  - Relative time until start (e.g., "in 2 days")
+  - Direct link to Discord event
+  - Presentation slides link
+- Sessions sorted chronologically (earliest first)
+- Visual separators between multiple sessions
+- Shows total count in footer
+- Encourages members to mark "Interested" on events
 
 ### Hours Commands
 
@@ -481,11 +515,13 @@ Uses Google Service Account authentication with OAuth 2.0. The service account m
 - **Purpose:** Improves performance for commands that need to check member data frequently
 - **Persistence:** Cache saved to `data/member-cache.json` on disk
 - **Auto-Refresh:** Updates every 15 minutes to keep data fresh
+- **Smart Logging:** Only logs cache updates when member count changes or on initial load
 - **Benefits:**
   - Faster nickname conflict detection in `/verifyuser`
   - Improved `/broadcast` command performance
   - Reduces API calls to Discord
   - Survives bot restarts (loads from disk on startup)
+  - Minimal console noise during periodic refreshes
 - **Data Stored:** User ID, username, display name, roles, join date
 - **Exclusions:** Bot accounts are not cached
 
@@ -499,7 +535,7 @@ Uses Google Service Account authentication with OAuth 2.0. The service account m
   - Deletes Discord events removed from calendar
   - Skips past events (> 1 hour ago)
   - Adds custom banner image
-  - Persists mapping in `event-mapping.json`
+  - Persists mapping in `data/event-mapping.json`
 
 ### Left Users Checker
 - **Frequency:** Every 6 hours (if enabled)
@@ -544,12 +580,13 @@ Uses Google Service Account authentication with OAuth 2.0. The service account m
 Project-NexTech-discord-bot/
 ├── commands/
 │   ├── admin/
-│   │   ├── broadcast.js        # Broadcast messages to all members
+│   │   ├── broadcast.js        # Broadcast messages to filtered member groups
 │   │   ├── createregion.js     # Create region/country roles
 │   │   ├── syncroles.js        # Sync enrollment roles from Sheets
 │   │   └── verifyuser.js       # Manually verify new members
 │   ├── events/
-│   │   └── events.js           # View upcoming events
+│   │   ├── events.js           # View upcoming events
+│   │   └── infosessions.js     # Display upcoming info session events
 │   ├── general/
 │   │   ├── calendar.js         # Get calendar link
 │   │   ├── contact.js          # View department contacts
@@ -571,16 +608,18 @@ Project-NexTech-discord-bot/
 │   ├── memberCache.js          # Persistent member cache system
 │   └── helpers.js              # Utility functions and embed builders
 ├── data/
-│   └── member-cache.json       # Cached member data (auto-generated)
+│   ├── member-cache.json       # Cached member data (auto-generated)
+│   ├── event-mapping.json      # Calendar event ID mapping (auto-generated)
+│   └── broadcast-list.csv      # Custom broadcast recipient list (optional)
 ├── index.js                    # Main bot entry point
 ├── deploy-commands.js          # Command deployment script
+├── generate-broadcast-list.js  # Generate CSV for custom broadcast (utility)
 ├── delete-command.js           # Remove commands (utility)
 ├── list-all-commands.js        # List deployed commands (utility)
 ├── get-role-ids.js             # Retrieve role IDs (utility)
 ├── check-broadcast.js          # Test broadcast functionality (utility)
 ├── credentials.json            # Google Service Account credentials (not in repo)
 ├── credentials.example.json    # Example credentials file
-├── event-mapping.json          # Calendar event ID mapping
 ├── package.json                # Node.js dependencies
 ├── .env                        # Environment variables (not in repo)
 └── README.md                   # This file
@@ -634,6 +673,12 @@ node get-role-ids.js           # List all server role IDs
 node check-broadcast.js        # Test broadcast functionality
 ```
 
+### Generate Broadcast List
+```bash
+node generate-broadcast-list.js input.csv  # Process CSV for custom broadcast
+```
+**Purpose:** Extracts names from column B of a CSV file (skipping first 6 rows) and saves to `data/broadcast-list.csv` for use with the `/broadcast` command's Custom CSV option.
+
 ## Troubleshooting
 
 ### Bot not responding to commands
@@ -668,9 +713,7 @@ GPL-3.0 License
 
 ## Author
 
-Project NexTech Development Team (Daniel) + Claude Sonnet 4.5
+Project NexTech Development Team (Daniel) + Claude Sonnet 4.5 and a few other AI models
 
 ---
-
-**Version:** 1.0.0  
-**Last Updated:** November 10, 2025
+**Last Updated:** November 26, 2025

@@ -5,7 +5,7 @@ const path = require('node:path');
 
 // Store mapping of calendar event UIDs to Discord event IDs
 const eventMapping = new Map();
-const mappingFilePath = path.join(__dirname, '..', 'event-mapping.json');
+const mappingFilePath = path.join(__dirname, '..', 'data', 'event-mapping.json');
 
 /**
  * Loads the event mapping from file
