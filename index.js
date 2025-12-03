@@ -8,7 +8,6 @@ const memberCache = require('./utils/memberCache');
 // Load token from environment variable
 const token = process.env.DISCORD_TOKEN;
 
-// Register graceful shutdown handlers EARLY, before client initialization
 async function gracefulExit() {
 	try {
 		console.log('[Shutdown] Cleaning up…');
@@ -39,6 +38,21 @@ async function gracefulExit() {
 
 process.once('SIGINT', gracefulExit);
 process.once('SIGTERM', gracefulExit);
+
+// Listen for "stop" command in stdin
+const readline = require('readline');
+const rl = readline.createInterface({
+	input: process.stdin,
+	output: process.stdout,
+	terminal: false
+});
+
+rl.on('line', (input) => {
+	if (input.trim().toLowerCase() === 'stop') {
+		console.log('Received "stop" command');
+		gracefulExit();
+	}
+});
 
 const client = new Client({ 
 	intents: [
