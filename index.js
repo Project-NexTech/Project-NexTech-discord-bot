@@ -105,7 +105,7 @@ if (process.platform === "win32") {
 }
 
 // Graceful shutdown handler
-process.on("SIGINT", async function () {
+const gracefulShutdown = async function () {
 	console.log("\nGracefully shutting down...");
 	try {
 		// Save member cache before shutdown
@@ -127,4 +127,7 @@ process.on("SIGINT", async function () {
 		process.exit(1);
 	}
 	process.exit(0);
-});
+};
+
+process.on("SIGINT", gracefulShutdown);
+process.on("SIGTERM", gracefulShutdown);
