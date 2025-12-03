@@ -45,7 +45,7 @@ async function gracefulExit() {
 		console.log('Client destroyed successfully');
 		
 		process.kill(process.pid, 'SIGTERM');
-		// process.exit(0);
+		process.exit(0);
 	} catch (error) {
 		console.error('[Shutdown] Error during graceful shutdown:', error);
 		process.exit(1);
