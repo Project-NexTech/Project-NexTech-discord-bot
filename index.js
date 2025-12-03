@@ -8,6 +8,21 @@ const memberCache = require('./utils/memberCache');
 // Load token from environment variable
 const token = process.env.DISCORD_TOKEN;
 
+const client = new Client({ 
+	intents: [
+		GatewayIntentBits.Guilds,
+		GatewayIntentBits.GuildMembers,
+		GatewayIntentBits.DirectMessages,
+		GatewayIntentBits.GuildMessages,
+		GatewayIntentBits.MessageContent,
+	],
+	partials: [Partials.Channel], // Required for DMs
+	presence: {
+		activities: [{ name: 'STEM Education', type: ActivityType.Watching }],
+		status: 'online',
+	},
+});
+
 async function gracefulExit() {
 	try {
 		console.log('[Shutdown] Cleaning up…');
@@ -52,21 +67,6 @@ rl.on('line', (input) => {
 		console.log('Received "stop" command');
 		gracefulExit();
 	}
-});
-
-const client = new Client({ 
-	intents: [
-		GatewayIntentBits.Guilds,
-		GatewayIntentBits.GuildMembers,
-		GatewayIntentBits.DirectMessages,
-		GatewayIntentBits.GuildMessages,
-		GatewayIntentBits.MessageContent,
-	],
-	partials: [Partials.Channel], // Required for DMs
-	presence: {
-		activities: [{ name: 'STEM Education', type: ActivityType.Watching }],
-		status: 'online',
-	},
 });
 
 client.commands = new Collection();
