@@ -8,6 +8,38 @@ const memberCache = require('./utils/memberCache');
 // Load token from environment variable
 const token = process.env.DISCORD_TOKEN;
 
+// Register graceful shutdown handlers EARLY, before client initialization
+async function gracefulExit() {
+	try {
+		console.log('[Shutdown] Cleaning up…');
+		
+		// Save member cache before shutdown
+		console.log('💾 Saving member cache...');
+		memberCache.save();
+		
+		// Set bot status to invisible before destroying
+		if (client?.user) {
+			await client.user.setStatus('invisible');
+			console.log('Bot status set to invisible');
+		}
+		
+		// Wait a moment for the status update to propagate
+		await new Promise(resolve => setTimeout(resolve, 500));
+		
+		// Destroy the client connection
+		await client?.destroy?.();
+		console.log('Client destroyed successfully');
+		
+		process.exit(0);
+	} catch (error) {
+		console.error('[Shutdown] Error during graceful shutdown:', error);
+		process.exit(1);
+	}
+}
+
+process.once('SIGINT', gracefulExit);
+process.once('SIGTERM', gracefulExit);
+
 const client = new Client({ 
 	intents: [
 		GatewayIntentBits.Guilds,
@@ -103,31 +135,3 @@ if (process.platform === "win32") {
 		process.emit("SIGINT");
 	});
 }
-
-// Graceful shutdown handler
-const gracefulShutdown = async function () {
-	console.log("\nGracefully shutting down...");
-	try {
-		// Save member cache before shutdown
-		console.log("💾 Saving member cache...");
-		memberCache.save();
-		
-		// Set bot status to invisible before destroying
-		await client.user?.setStatus('invisible');
-		console.log("Bot status set to invisible");
-		
-		// Wait a moment for the status update to propagate
-		await new Promise(resolve => setTimeout(resolve, 500));
-		
-		// Destroy the client connection
-		client.destroy();
-		console.log("Client destroyed successfully");
-	} catch (error) {
-		console.error("Error during shutdown:", error);
-		process.exit(1);
-	}
-	process.exit(0);
-};
-
-process.on("SIGINT", gracefulShutdown);
-process.on("SIGTERM", gracefulShutdown);
