@@ -36,8 +36,8 @@ async function gracefulExit() {
 	}
 }
 
-process.once('SIGINT', gracefulExit);
-process.once('SIGTERM', gracefulExit);
+process.on('SIGINT', gracefulExit);
+process.on('SIGTERM', gracefulExit);
 
 // Listen for "stop" command in stdin
 const readline = require('readline');
