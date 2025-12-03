@@ -44,7 +44,8 @@ async function gracefulExit() {
 		await client?.destroy?.();
 		console.log('Client destroyed successfully');
 		
-		process.exit(0);
+		process.kill(process.pid, 'SIGTERM');
+		// process.exit(0);
 	} catch (error) {
 		console.error('[Shutdown] Error during graceful shutdown:', error);
 		process.exit(1);
@@ -63,9 +64,12 @@ const rl = readline.createInterface({
 });
 
 rl.on('line', (input) => {
-	if (input.trim().toLowerCase() === 'stop') {
+	const command = input.trim().toLowerCase();
+	if (command === 'stop') {
 		console.log('Received "stop" command');
 		gracefulExit();
+	} else if (command) {
+		console.log('Invalid command');
 	}
 });
 
