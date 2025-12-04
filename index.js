@@ -43,8 +43,7 @@ async function gracefulExit() {
 		// Destroy the client connection
 		await client?.destroy?.();
 		console.log('Client destroyed successfully');
-		
-		process.kill(process.pid, 'SIGTERM');
+
 		process.exit(0);
 	} catch (error) {
 		console.error('[Shutdown] Error during graceful shutdown:', error);
@@ -53,7 +52,7 @@ async function gracefulExit() {
 }
 
 process.on('SIGINT', gracefulExit);
-// process.on('SIGTERM', gracefulExit);
+process.on('SIGTERM', gracefulExit);
 
 // Listen for "stop" command in stdin
 const readline = require('readline');
