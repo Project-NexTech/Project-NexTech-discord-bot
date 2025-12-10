@@ -2,6 +2,7 @@ const path = require('node:path');
 // Load .env from the script's directory, not the current working directory
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 const fs = require('node:fs');
+const https = require('https');
 const { Client, Collection, GatewayIntentBits, Partials, ActivityType } = require('discord.js');
 const memberCache = require('./utils/memberCache');
 
@@ -145,6 +146,29 @@ client.on('warn', (warning) => {
 });
 
 client.login(token);
+
+// Health check ping every 2 minutes
+const HEALTH_CHECK_URL = 'https://hc-ping.com/98830f7e-ec5e-434b-85e3-160450ef27b1';
+const HEALTH_CHECK_INTERVAL = 2 * 60 * 1000; // 2 minutes in milliseconds
+
+function sendHealthCheckPing() {
+	https.get(HEALTH_CHECK_URL, (res) => {
+		if (res.statusCode === 200) {
+			console.log('✅ Health check ping sent successfully');
+		} else {
+			console.log(`⚠️ Health check ping responded with status: ${res.statusCode}`);
+		}
+	}).on('error', (error) => {
+		console.error('❌ Health check ping failed:', error.message);
+	});
+}
+
+// Send initial ping after bot is ready
+client.once('ready', () => {
+	sendHealthCheckPing();
+	// Set up interval for subsequent pings
+	setInterval(sendHealthCheckPing, HEALTH_CHECK_INTERVAL);
+});
 
 // Windows-specific workaround for SIGINT (Ctrl+C) handling
 if (process.platform === "win32") {
