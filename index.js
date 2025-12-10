@@ -23,7 +23,7 @@ const client = new Client({
 	},
 });
 
-async function gracefulExit() {
+async function gracefulExit(fromStopCommand = false) {
 	try {
 		console.log('[Shutdown] Cleaning up…');
 		
@@ -44,7 +44,12 @@ async function gracefulExit() {
 		await client?.destroy?.();
 		console.log('Client destroyed successfully');
 
-		process.exit(0);
+		if (!fromStopCommand) {
+			process.exit(0);
+		}
+		else {
+			console.log('[Shutdown] Graceful shutdown complete. It is safe to stop the server now.');
+		}
 	} catch (error) {
 		console.error('[Shutdown] Error during graceful shutdown:', error);
 		process.exit(1);
@@ -66,7 +71,7 @@ rl.on('line', (input) => {
 	const command = input.trim().toLowerCase();
 	if (command === 'stop') {
 		console.log('Received "stop" command');
-		gracefulExit();
+		gracefulExit(true);
 	} else if (command) {
 		console.log('Invalid command');
 	}
