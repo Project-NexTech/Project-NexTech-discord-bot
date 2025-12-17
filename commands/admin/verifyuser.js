@@ -318,6 +318,9 @@ module.exports = {
 							info.lastInitial && info.lastInitial === lastInitial
 						);
 						
+						// Check if any member has UNKNOWN last initial (not in sheet or nickname)
+						const memberWithUnknownLastInitial = conflictInfo.find(info => !info.lastInitial);
+						
 						console.log(`[Nickname Conflict Debug] New user: ${firstName} ${lastName}, last initial: ${lastInitial}`);
 						
 						if (memberWithSameLastInitial) {
@@ -327,6 +330,15 @@ module.exports = {
 							// Store the conflict info for use below
 							conflictingMember._conflictInfo = memberWithSameLastInitial;
 							conflictingMember._triggerModal = true;
+							conflictingMember._conflictReason = 'same_initial';
+						} else if (memberWithUnknownLastInitial) {
+							// Existing member's last name is UNKNOWN - trigger manual modal
+							console.log(`[Nickname Conflict Debug] Existing member ${memberWithUnknownLastInitial.member.user.tag} has unknown last name - triggering modal`);
+							conflictingMember = memberWithUnknownLastInitial.member;
+							// Store the conflict info for use below
+							conflictingMember._conflictInfo = memberWithUnknownLastInitial;
+							conflictingMember._triggerModal = true;
+							conflictingMember._conflictReason = 'unknown_last_name';
 						} else {
 							// DIFFERENT last initials - auto-resolve (pick first member for updating)
 							console.log(`[Nickname Conflict Debug] DIFFERENT last initials - auto-resolving`);
@@ -354,14 +366,16 @@ module.exports = {
 					// Use the conflict info we already determined in the loop above
 					const conflictInfo = conflictingMember._conflictInfo;
 					const triggerModal = conflictingMember._triggerModal;
+					const conflictReason = conflictingMember._conflictReason;
 					const conflictingLastInitial = conflictInfo.lastInitial;
 					const hasLastInitialInNick = conflictInfo.hasLastInitialInNick;
 
 					// IMPORTANT: Check for SAME last initials FIRST (manual modal)
+					// Also check for UNKNOWN last name (manual modal)
 					// Then check for DIFFERENT last initials (auto-resolve)
 					if (triggerModal) {
-						// Last initials MATCH - require manual input via modal
-						console.log('[Nickname Conflict Debug] Triggering manual modal - same last initials');
+						// Last initials MATCH or existing member's last name is UNKNOWN - require manual input via modal
+						console.log(`[Nickname Conflict Debug] Triggering manual modal - ${conflictReason}`);
 						if (!interaction.client.verificationPending) {
 							interaction.client.verificationPending = new Map();
 						}
@@ -383,6 +397,8 @@ module.exports = {
 							staffChatChannelId: process.env.STAFF_CHAT_CHANNEL_ID,
 							missingFields,
 							warningMessage,
+							conflictReason,
+							newUserLastName: lastName,
 						});
 
 						// Set a timeout to clean up pending verification if modal is not submitted (5 minutes)
@@ -408,12 +424,30 @@ module.exports = {
 
 						const buttonRow = new ActionRowBuilder().addComponents(resolveButton, cancelButton);
 
-						await interaction.editReply({
-							content: `⚠️ **Nickname Conflict - Manual Resolution Required**\n\n` +
+						// Construct the conflict message based on the reason
+						let conflictMessage;
+						if (conflictReason === 'same_initial') {
+							conflictMessage = `⚠️ **Nickname Conflict - Manual Resolution Required**\n\n` +
 								`${targetUser} cannot be automatically verified because a member with the first name "${firstName}" and the same last initial "${lastInitial}" already exists: ${conflictingMember}\n` +
 								`Current nickname: \`${conflictingNick}\`\n\n` +
 								`**Both users' nicknames need to be updated manually** because they share the same first name and last initial.\n\n` +
-								`**Action Required:** Click "Resolve Nickname Conflict" to specify what both users' nicknames should be (without [ɴᴛ] prefix), or "Cancel Verification" to abort.`,
+								`**Action Required:** Click "Resolve Nickname Conflict" to specify what both users' nicknames should be (without [ɴᴛ] prefix), or "Cancel Verification" to abort.`;
+						} else if (conflictReason === 'unknown_last_name') {
+							conflictMessage = `⚠️ **Nickname Conflict - Manual Resolution Required**\n\n` +
+								`${targetUser} cannot be automatically verified because a member with the first name "${firstName}" already exists: ${conflictingMember}\n` +
+								`Current nickname: \`${conflictingNick}\`\n\n` +
+								`**The existing member's last name is unknown** (not found in the verification sheet or nickname), so both users' nicknames need to be updated manually.\n\n` +
+								`**Action Required:** Click "Resolve Nickname Conflict" to enter the last names for both users (the new member's last name will be auto-filled), or "Cancel Verification" to abort.`;
+						} else {
+							conflictMessage = `⚠️ **Nickname Conflict - Manual Resolution Required**\n\n` +
+								`${targetUser} cannot be automatically verified because a member with the first name "${firstName}" already exists: ${conflictingMember}\n` +
+								`Current nickname: \`${conflictingNick}\`\n\n` +
+								`**Both users' nicknames need to be updated manually.**\n\n` +
+								`**Action Required:** Click "Resolve Nickname Conflict" to specify what both users' nicknames should be (without [ɴᴛ] prefix), or "Cancel Verification" to abort.`;
+						}
+
+						await interaction.editReply({
+							content: conflictMessage,
 							components: [buttonRow],
 						});
 

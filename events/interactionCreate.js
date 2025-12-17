@@ -48,34 +48,34 @@ module.exports = {
 			}
 
 			const pendingData = interaction.client.verificationPending.get(userId);
-			const { targetMember, conflictingMember, userData } = pendingData;
+		const { targetMember, conflictingMember, userData, newUserLastName } = pendingData;
 
-			// Parse the user's name to get suggested nickname
-			const nameParts = userData.name.trim().split(/\s+/);
-			const firstName = nameParts[0];
-			const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : '';
-			const lastInitial = lastName ? lastName.charAt(0).toUpperCase() : '';
+		// Parse the user's name to get suggested nickname
+		const nameParts = userData.name.trim().split(/\s+/);
+		const firstName = nameParts[0];
+		// Use the stored newUserLastName from pending data (already extracted during conflict detection)
+		const lastName = newUserLastName || (nameParts.length > 1 ? nameParts[nameParts.length - 1] : '');
+		const lastInitial = lastName ? lastName.charAt(0).toUpperCase() : '';
 
-			// Create a modal for nickname resolution
-			const modal = new ModalBuilder()
-				.setCustomId(`nickname_conflict_${userId}_${conflictingMember.id}`)
-				.setTitle('Nickname Conflict Resolution');
+		// Create a modal for nickname resolution
+		const modal = new ModalBuilder()
+			.setCustomId(`nickname_conflict_${userId}_${conflictingMember.id}`)
+			.setTitle('Nickname Conflict Resolution');
 
-			const newUserNicknameInput = new TextInputBuilder()
-				.setCustomId('new_user_nickname')
-				.setLabel(`New member: ${targetMember.user.username}`)
-				.setStyle(TextInputStyle.Short)
-				.setPlaceholder(`e.g., ${firstName} ${lastInitial}___ (no [ɴᴛ] prefix)`)
-				.setValue(`${firstName} ${lastInitial}`)
-				.setRequired(true)
-				.setMaxLength(32);
+		const newUserNicknameInput = new TextInputBuilder()
+			.setCustomId('new_user_nickname')
+			.setLabel(`New member: ${targetMember.user.username}`)
+			.setStyle(TextInputStyle.Short)
+			.setPlaceholder(`e.g., ${firstName} ${lastInitial}. (no [ɴᴛ] prefix)`)
+			.setValue(lastName ? `${firstName} ${lastInitial}.` : `${firstName}`)
+			.setRequired(true)
+			.setMaxLength(32);
 
-			const existingUserNicknameInput = new TextInputBuilder()
-				.setCustomId('existing_user_nickname')
-				.setLabel(`Existing member: ${conflictingMember.user.username}`)
-				.setStyle(TextInputStyle.Short)
-				.setPlaceholder(`e.g., ${firstName}___ (no [ɴᴛ] prefix)`)
-				.setRequired(true)
+		const existingUserNicknameInput = new TextInputBuilder()
+			.setCustomId('existing_user_nickname')
+			.setLabel(`Existing member: ${conflictingMember.user.username}`)
+			.setStyle(TextInputStyle.Short)
+			.setPlaceholder(`e.g., ${firstName} X. (no [ɴᴛ] prefix)`)
 				.setMaxLength(32);
 
 			const row1 = new ActionRowBuilder().addComponents(newUserNicknameInput);
