@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const sheetsManager = require('../../utils/sheets');
 const { hasRequiredRole } = require('../../utils/helpers');
 
@@ -225,6 +225,71 @@ module.exports = {
 			let warningMessage = '';
 			if (missingFields.length > 0) {
 				warningMessage = `\n⚠️ **Warning:** Missing optional fields: ${missingFields.join(', ')}`;
+			}
+
+			// ============================================
+			// STEP 0: Check for single-name input and ask for confirmation
+			// ============================================
+			const initialNameParts = userData.name.trim().split(/\s+/);
+			if (initialNameParts.length === 1) {
+				// Only first name provided - ask for confirmation
+				if (!interaction.client.verificationPending) {
+					interaction.client.verificationPending = new Map();
+				}
+
+				// Store pending verification data
+				interaction.client.verificationPending.set(targetUser.id, {
+					userData,
+					targetMember,
+					interaction,
+					regionRole,
+					countryRole,
+					ntUnverifiedRole,
+					combinedUnverifiedRole,
+					ntMemberRole,
+					serverMemberRole,
+					onlineMemberRole,
+					ntUnenrolledRole,
+					ntChatChannelId: process.env.NT_CHAT_CHANNEL_ID,
+					staffChatChannelId: process.env.STAFF_CHAT_CHANNEL_ID,
+					missingFields,
+					warningMessage,
+					singleNameConfirmation: true,
+				});
+
+				// Set up timeout to cancel pending verification after 2 minutes
+				const timeoutId = setTimeout(() => {
+					if (interaction.client.verificationPending?.has(targetUser.id)) {
+						interaction.client.verificationPending.delete(targetUser.id);
+						interaction.editReply({
+							content: `⏱️ **Verification Timed Out**\n\nThe single-name confirmation for ${targetUser} has expired. Please run the command again.`,
+							components: [],
+						}).catch(() => {});
+					}
+				}, 2 * 60 * 1000); // 2 minutes
+
+				interaction.client.verificationPending.get(targetUser.id).timeoutId = timeoutId;
+
+				const continueButton = new ButtonBuilder()
+					.setCustomId(`single_name_continue_${targetUser.id}`)
+					.setLabel('Continue with First Name Only')
+					.setStyle(ButtonStyle.Primary);
+
+				const cancelButton = new ButtonBuilder()
+					.setCustomId(`cancel_verification_${targetUser.id}`)
+					.setLabel('Cancel Verification')
+					.setStyle(ButtonStyle.Danger);
+
+				const buttonRow = new ActionRowBuilder().addComponents(continueButton, cancelButton);
+
+				return interaction.editReply({
+					content: `⚠️ **Single Name Detected**\n\n` +
+						`You entered only a first name: **${userData.name}**\n\n` +
+						`Did you mean to include a last name? Make sure there's no missing space.\n\n` +
+						`If you continue, the name will be saved as **${userData.name} ???** to indicate the last name is unknown.\n\n` +
+						`Click "Continue with First Name Only" to proceed, or "Cancel Verification" to re-run the command with the full name.`,
+					components: [buttonRow],
+				});
 			}
 
 			// Store which unverified roles the user had (needed for pending verification state)
@@ -662,6 +727,325 @@ module.exports = {
 			console.error('Error in /verifyuser command:', error);
 			await interaction.editReply({
 				content: '❌ An error occurred while verifying the user. Please try again later.',
+			});
+		}
+	},
+	// Continue verification after single-name confirmation
+	async continueVerification(buttonInteraction, pendingData) {
+		const {
+			userData,
+			targetMember,
+			interaction: originalInteraction,
+			regionRole,
+			countryRole,
+			ntUnverifiedRole,
+			combinedUnverifiedRole,
+			ntMemberRole,
+			serverMemberRole,
+			onlineMemberRole,
+			ntUnenrolledRole,
+			missingFields,
+			warningMessage,
+		} = pendingData;
+
+		const targetUser = targetMember.user;
+		const interaction = originalInteraction;
+
+		try {
+			// Store which unverified roles the user had
+			const hadNtUnverified = ntUnverifiedRole && targetMember.roles.cache.has(ntUnverifiedRole.id);
+			const hadCombinedUnverified = combinedUnverifiedRole && targetMember.roles.cache.has(combinedUnverifiedRole.id);
+
+			// ============================================
+			// STEP 1: Handle nickname conflict detection
+			// ============================================
+			let newUserNickname = null;
+			let conflictingMemberToUpdate = null;
+			let conflictingMemberNewNickname = null;
+
+			// Parse the user's name (now includes "???" for unknown last names)
+			const nameParts = userData.name.trim().split(/\s+/);
+			const firstName = nameParts[0];
+			const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : '';
+			const lastInitial = lastName && lastName !== '???' ? lastName.charAt(0).toUpperCase() : '';
+
+			const ntMemberRoleCheck = interaction.guild.roles.cache.find(role =>
+				role.name.toLowerCase().includes('nt member'),
+			);
+
+			let conflictingMember = null;
+
+			if (ntMemberRoleCheck) {
+				const membersToCheck = interaction.guild.members.cache;
+
+				const membersWithSameFirstName = membersToCheck.filter(member => {
+					if (member.id === targetMember.id) return false;
+					if (!member.roles.cache.has(ntMemberRoleCheck.id)) return false;
+
+					const nick = member.nickname || member.user.username;
+					const cleanNick = nick.replace(/^\[ɴᴛ\]\s*/i, '');
+					const nickFirstName = cleanNick.trim().split(/\s+/)[0];
+					return nickFirstName.toLowerCase() === firstName.toLowerCase();
+				});
+
+				if (membersWithSameFirstName.size > 0) {
+					// There's a conflict but the new user has "???" as last name
+					// This means we can't auto-resolve, need manual intervention
+					const sheetsManager = require('../../utils/sheets');
+					
+					for (const [, member] of membersWithSameFirstName) {
+						const memberNick = member.nickname || member.user.username;
+						const cleanMemberNick = memberNick.replace(/^\[ɴᴛ\]\s*/i, '');
+						const hasLastInitialInNick = /^[A-Za-z]+\s+[A-Z]\.$/.test(cleanMemberNick.trim());
+
+						let memberLastInitial = null;
+						try {
+							const sheetData = await sheetsManager.getVerificationData(member.id);
+							if (sheetData && sheetData.name) {
+								const memberNameParts = sheetData.name.trim().split(/\s+/);
+								const memberLastName = memberNameParts.length > 1 ? memberNameParts[memberNameParts.length - 1] : '';
+								memberLastInitial = memberLastName ? memberLastName.charAt(0).toUpperCase() : null;
+							}
+						} catch (sheetError) {
+							console.error('Failed to get member data from sheet:', sheetError);
+						}
+
+						if (hasLastInitialInNick && !memberLastInitial) {
+							const nickParts = cleanMemberNick.trim().split(/\s+/);
+							if (nickParts.length >= 2) {
+								const lastPart = nickParts[nickParts.length - 1];
+								if (/^[A-Z]\.$/.test(lastPart)) {
+									memberLastInitial = lastPart.charAt(0);
+								}
+							}
+						}
+
+						// Since new user has "???", we need manual resolution
+						conflictingMember = member;
+						conflictingMember._conflictInfo = {
+							member,
+							lastInitial: memberLastInitial,
+							hasLastInitialInNick,
+							nickname: memberNick,
+						};
+						conflictingMember._triggerModal = true;
+						conflictingMember._conflictReason = 'unknown_new_user_last_name';
+						break;
+					}
+				}
+			}
+
+			if (conflictingMember && conflictingMember._triggerModal) {
+				// Need manual nickname resolution
+				if (!buttonInteraction.client.verificationPending) {
+					buttonInteraction.client.verificationPending = new Map();
+				}
+
+				buttonInteraction.client.verificationPending.set(targetUser.id, {
+					userData,
+					targetMember,
+					conflictingMember,
+					interaction,
+					regionRole,
+					countryRole,
+					hadNtUnverified,
+					hadCombinedUnverified,
+					ntMemberRole,
+					serverMemberRole,
+					onlineMemberRole,
+					ntUnenrolledRole,
+					ntChatChannelId: process.env.NT_CHAT_CHANNEL_ID,
+					staffChatChannelId: process.env.STAFF_CHAT_CHANNEL_ID,
+					missingFields,
+					warningMessage,
+					conflictReason: 'unknown_new_user_last_name',
+					newUserLastName: '???',
+				});
+
+				const timeoutId = setTimeout(() => {
+					if (buttonInteraction.client.verificationPending?.has(targetUser.id)) {
+						buttonInteraction.client.verificationPending.delete(targetUser.id);
+						buttonInteraction.editReply({
+							content: `⏱️ **Verification Timed Out**\n\nThe nickname conflict resolution for ${targetUser} has expired. Please run the command again.`,
+							components: [],
+						}).catch(() => {});
+					}
+				}, 5 * 60 * 1000);
+
+				buttonInteraction.client.verificationPending.get(targetUser.id).timeoutId = timeoutId;
+
+				const { ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
+				const resolveButton = new ButtonBuilder()
+					.setCustomId(`resolve_nickname_conflict_${targetUser.id}`)
+					.setLabel('Resolve Nickname Conflict')
+					.setStyle(ButtonStyle.Primary);
+
+				const cancelButton = new ButtonBuilder()
+					.setCustomId(`cancel_verification_${targetUser.id}`)
+					.setLabel('Cancel Verification')
+					.setStyle(ButtonStyle.Danger);
+
+				const buttonRow = new ActionRowBuilder().addComponents(resolveButton, cancelButton);
+
+				const conflictingNick = conflictingMember.nickname || conflictingMember.user.username;
+
+				await buttonInteraction.editReply({
+					content: `⚠️ **Nickname Conflict - Manual Resolution Required**\n\n` +
+						`${targetUser} cannot be automatically verified because a member with the first name "${firstName}" already exists: ${conflictingMember}\n` +
+						`Current nickname: \`${conflictingNick}\`\n\n` +
+						`**The new member's last name is unknown ("???")**, so both users' nicknames need to be set manually.\n\n` +
+						`**Action Required:** Click "Resolve Nickname Conflict" to specify both nicknames, or "Cancel Verification" to abort.`,
+					components: [buttonRow],
+				});
+
+				return;
+			}
+
+			// No conflict or auto-resolvable - proceed with verification
+			// Set nickname for new user
+			if (!conflictingMember) {
+				newUserNickname = `[ɴᴛ] ${firstName}`;
+			} else {
+				// Auto-resolve: add last initial to both
+				const conflictInfo = conflictingMember._conflictInfo;
+				const existingMemberLastInitial = conflictInfo.lastInitial;
+
+				newUserNickname = `[ɴᴛ] ${firstName} ?.`; // Use "?." for unknown last initial
+				conflictingMemberToUpdate = conflictingMember;
+				conflictingMemberNewNickname = existingMemberLastInitial 
+					? `[ɴᴛ] ${firstName} ${existingMemberLastInitial}.`
+					: `[ɴᴛ] ${firstName}`;
+			}
+
+			// ============================================
+			// STEP 2: Assign roles
+			// ============================================
+			const rolesToAdd = [];
+			const rolesToRemove = [];
+
+			if (ntMemberRole) rolesToAdd.push(ntMemberRole);
+			if (ntUnenrolledRole) rolesToAdd.push(ntUnenrolledRole);
+
+			if (userData.hasIRLConnection && serverMemberRole) {
+				rolesToAdd.push(serverMemberRole);
+			} else if (!userData.hasIRLConnection && onlineMemberRole) {
+				rolesToAdd.push(onlineMemberRole);
+			}
+
+			if (regionRole) rolesToAdd.push(regionRole);
+			if (countryRole) rolesToAdd.push(countryRole);
+
+			if (hadNtUnverified && ntUnverifiedRole) rolesToRemove.push(ntUnverifiedRole);
+			if (hadCombinedUnverified && combinedUnverifiedRole) rolesToRemove.push(combinedUnverifiedRole);
+
+			// Apply role changes
+			if (rolesToAdd.length > 0) {
+				await targetMember.roles.add(rolesToAdd);
+			}
+			if (rolesToRemove.length > 0) {
+				await targetMember.roles.remove(rolesToRemove);
+			}
+
+			// Update nickname
+			if (newUserNickname) {
+				try {
+					await targetMember.setNickname(newUserNickname);
+				} catch (nickError) {
+					console.error('Failed to set nickname:', nickError);
+				}
+			}
+
+			// Update conflicting member's nickname if needed
+			if (conflictingMemberToUpdate && conflictingMemberNewNickname) {
+				try {
+					await conflictingMemberToUpdate.setNickname(conflictingMemberNewNickname);
+				} catch (nickError) {
+					console.error('Failed to update conflicting member nickname:', nickError);
+				}
+			}
+
+			// ============================================
+			// STEP 3: Log to Google Sheets
+			// ============================================
+			const sheetLogged = await sheetsManager.verifyUser(userData);
+			if (!sheetLogged) {
+				await buttonInteraction.editReply({
+					content: '❌ Failed to log this verification to Google Sheets. Please try again later or contact an administrator.',
+					components: [],
+				});
+				return;
+			}
+
+			// ============================================
+			// STEP 4: Send notifications
+			// ============================================
+			const { EmbedBuilder } = require('discord.js');
+			const embed = new EmbedBuilder()
+				.setColor(0x57F287)
+				.setTitle('✅ User Verified Successfully')
+				.setDescription(`${targetUser} has been verified and logged in the system.`)
+				.addFields(
+					{ name: 'Name', value: userData.name, inline: true },
+					{ name: 'Grade', value: userData.grade || 'N/A', inline: true },
+					{ name: 'School', value: userData.school || 'N/A', inline: true },
+					{ name: 'Region', value: userData.region || 'N/A', inline: true },
+					{ name: 'Robotics Team', value: userData.roboticsTeam || 'N/A', inline: true },
+					{ name: 'Invite Source', value: userData.inviteSource || 'N/A', inline: true },
+					{ name: 'IRL Connection', value: userData.hasIRLConnection ? 'Yes' : 'No', inline: true },
+					{ name: 'Verified By', value: userData.verifiedBy, inline: true },
+				)
+				.setTimestamp()
+				.setFooter({ text: 'Project NexTech Verification' });
+
+			if (warningMessage) {
+				embed.setDescription(embed.data.description + warningMessage);
+			}
+
+			// Send embed to staff chat channel
+			const staffChatChannelId = process.env.STAFF_CHAT_CHANNEL_ID;
+			if (staffChatChannelId) {
+				try {
+					const staffChatChannel = await buttonInteraction.client.channels.fetch(staffChatChannelId);
+					if (staffChatChannel) {
+						await staffChatChannel.send({ embeds: [embed] });
+					}
+				} catch (channelError) {
+					console.error('Could not send verification embed to staff chat:', channelError);
+				}
+			}
+
+			// Clean up pending data
+			if (buttonInteraction.client.verificationPending?.has(targetUser.id)) {
+				const pd = buttonInteraction.client.verificationPending.get(targetUser.id);
+				if (pd.timeoutId) clearTimeout(pd.timeoutId);
+				buttonInteraction.client.verificationPending.delete(targetUser.id);
+			}
+
+			// Send confirmation
+			await buttonInteraction.editReply({
+				content: `✅ Successfully verified ${targetUser}. Details have been logged to <#${staffChatChannelId}>.`,
+				components: [],
+			});
+
+			// Send welcome message to NT chat channel
+			try {
+				const ntChatChannelId = process.env.NT_CHAT_CHANNEL_ID;
+				if (ntChatChannelId) {
+					const ntChatChannel = await buttonInteraction.client.channels.fetch(ntChatChannelId);
+					if (ntChatChannel) {
+						const welcomeChannelMessage = `Welcome to Project NexTech, ${targetUser}! Please check <#1231776603126890671> for updates every few days and get your roles in <#1231777272906649670>. You can select any departments/subjects you are interested in. <#1386576733674668052> has useful information to get started. New members should go to one of our online info sessions. We will announce in <#1231776603126890671> when we will have one.`;
+						await ntChatChannel.send(welcomeChannelMessage);
+					}
+				}
+			} catch (channelError) {
+				console.error('Could not send welcome message to NT chat channel:', channelError);
+			}
+
+		} catch (error) {
+			console.error('Error in continueVerification:', error);
+			await buttonInteraction.editReply({
+				content: '❌ An error occurred while verifying the user. Please try again later.',
+				components: [],
 			});
 		}
 	},

@@ -3,6 +3,71 @@ const { Collection, Events, MessageFlags, ModalBuilder, TextInputBuilder, TextIn
 module.exports = {
 	name: Events.InteractionCreate,
 	async execute(interaction) {
+		// Handle single-name confirmation button
+		if (interaction.isButton() && interaction.customId.startsWith('single_name_continue_')) {
+			const userId = interaction.customId.replace('single_name_continue_', '');
+			
+			// Check if we have pending verification data
+			if (!interaction.client.verificationPending || !interaction.client.verificationPending.has(userId)) {
+				return interaction.reply({
+					content: '❌ Verification session already expired or completed.',
+					flags: MessageFlags.Ephemeral,
+				});
+			}
+
+			const pendingData = interaction.client.verificationPending.get(userId);
+			
+			// Verify this is a single-name confirmation
+			if (!pendingData.singleNameConfirmation) {
+				return interaction.reply({
+					content: '❌ Invalid button interaction.',
+					flags: MessageFlags.Ephemeral,
+				});
+			}
+
+			const { timeoutId, userData } = pendingData;
+
+			// Clear the timeout
+			if (timeoutId) {
+				clearTimeout(timeoutId);
+			}
+
+			// Append "???" to the name to indicate unknown last name
+			pendingData.userData.name = `${userData.name} ???`;
+			pendingData.singleNameConfirmation = false; // Mark as handled
+
+			// Update the message to show we're continuing
+			await interaction.update({
+				content: `✅ Continuing verification with name: **${pendingData.userData.name}**\n\nProcessing...`,
+				components: [],
+			});
+
+			// Re-execute the verification with the updated name
+			// We need to call the verifyuser command's continuation logic
+			try {
+				const verifyCommand = interaction.client.commands.get('verifyuser');
+				if (verifyCommand && verifyCommand.continueVerification) {
+					await verifyCommand.continueVerification(interaction, pendingData);
+				} else {
+					// Fallback: delete pending data and ask user to re-run
+					interaction.client.verificationPending.delete(userId);
+					await interaction.editReply({
+						content: '❌ Could not continue verification. Please run the /verifyuser command again with the full name.',
+						components: [],
+					});
+				}
+			} catch (error) {
+				console.error('Error continuing single-name verification:', error);
+				interaction.client.verificationPending.delete(userId);
+				await interaction.editReply({
+					content: '❌ An error occurred during verification. Please try again.',
+					components: [],
+				});
+			}
+
+			return;
+		}
+
 		// Handle cancel verification button
 		if (interaction.isButton() && interaction.customId.startsWith('cancel_verification_')) {
 			const userId = interaction.customId.replace('cancel_verification_', '');
