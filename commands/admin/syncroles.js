@@ -57,6 +57,9 @@ module.exports = {
 			let unenrolled = 0;
 			let skipped = 0;
 			let errors = 0;
+			let newlyAssigned = 0;
+			let enrolledToUnenrolled = 0;
+			let unenrolledToEnrolled = 0;
 
 		// Process each member
 		for (const data of membershipData) {
@@ -89,26 +92,42 @@ module.exports = {
 				}					// Determine which role to add/remove based on status
 					// Normalize status by trimming whitespace
 					const normalizedStatus = data.status ? data.status.trim() : null;
-					
+
+					// Capture role state before making changes
+					const hadEnrolled = guildMember.roles.cache.has(ntEnrolledRole.id);
+					const hadUnenrolled = guildMember.roles.cache.has(ntUnenrolledRole.id);
+
 					if (normalizedStatus === 'Not a Member' || !normalizedStatus) {
 						// Remove NT Enrolled, Add NT Unenrolled
-						if (guildMember.roles.cache.has(ntEnrolledRole.id)) {
+						if (hadEnrolled) {
 							await guildMember.roles.remove(ntEnrolledRole);
 						}
-						if (!guildMember.roles.cache.has(ntUnenrolledRole.id)) {
+						if (!hadUnenrolled) {
 							await guildMember.roles.add(ntUnenrolledRole);
 						}
 						unenrolled++;
+						if (hadEnrolled) {
+							enrolledToUnenrolled++;
+						}
+						else if (!hadUnenrolled) {
+							newlyAssigned++;
+						}
 					}
 					else if (normalizedStatus === 'Paused' || normalizedStatus === 'Member' || normalizedStatus === 'New Member') {
 						// Remove NT Unenrolled, Add NT Enrolled
-						if (guildMember.roles.cache.has(ntUnenrolledRole.id)) {
+						if (hadUnenrolled) {
 							await guildMember.roles.remove(ntUnenrolledRole);
 						}
-						if (!guildMember.roles.cache.has(ntEnrolledRole.id)) {
+						if (!hadEnrolled) {
 							await guildMember.roles.add(ntEnrolledRole);
 						}
 						enrolled++;
+						if (hadUnenrolled) {
+							unenrolledToEnrolled++;
+						}
+						else if (!hadEnrolled) {
+							newlyAssigned++;
+						}
 					}
 					else {
 						// Unknown status
@@ -131,8 +150,9 @@ module.exports = {
 					{ name: '❌ NT Unenrolled', value: unenrolled.toString(), inline: true },
 					{ name: '⏭️ Skipped', value: skipped.toString(), inline: true },
 					{ name: '⚠️ Errors', value: errors.toString(), inline: true },
-					{ name: '📊 Total Processed', value: membershipData.length.toString(), inline: true },
-				)
+					{ name: '📊 Total Processed', value: membershipData.length.toString(), inline: true },				{ name: '🆕 Newly Assigned', value: newlyAssigned.toString(), inline: true },
+				{ name: '📉 Enrolled → Unenrolled', value: enrolledToUnenrolled.toString(), inline: true },
+				{ name: '📈 Unenrolled → Enrolled', value: unenrolledToEnrolled.toString(), inline: true },				)
 				.setTimestamp()
 				.setFooter({ text: 'Project NexTech Role Sync' });
 
