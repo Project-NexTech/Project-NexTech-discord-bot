@@ -288,7 +288,7 @@ View volunteer hours for yourself or another member.
 **Default Behavior (no `requests` parameter):**
 - Displays total volunteer hours summary
 - Shows user's profile picture
-- Fetches data from "Member Hours Tracker" sheet
+- Fetches data from "Tracker" sheet
 - Formatted with timestamps
 
 **With `requests` parameter:**
@@ -441,7 +441,7 @@ The bot expects the following sheets:
 - **Columns:** Name (A), Email 1 (B), Email 2 (C), Discord User ID (E)
 
 #### Events Sheet (`EVENTS_SHEET_ID`)
-- **Tab:** `San Diego Signups`
+- **Tab:** `Signup Sheet`
   - Columns-based structure (each column = one event)
   - Row 1: Date
   - Row 2: Day of Week
@@ -455,7 +455,7 @@ The bot expects the following sheets:
   - Row 10: Location
   - Row 11: Note
 
-- **Tab:** `Member Hours Tracker`
+- **Tab:** `Tracker`
   - Column A: Name
   - Column K: Total Hours
 

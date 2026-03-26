@@ -105,12 +105,12 @@ class SheetsManager {
 			.join(', ');
 
 		// Fetch public hours data from EVENTS_SHEET_ID (public sheet)
-		// "Member Hours Tracker" tab - Columns: A (Name), K (Total Hours)
+		// "Tracker" tab - Columns: A (Name), K (Total Hours)
 		const publicSheetId = process.env.EVENTS_SHEET_ID;
 		const hoursResponse = await this.safeApiCall(
 			() => this.sheets.spreadsheets.values.get({
 				spreadsheetId: publicSheetId,
-				range: '\'Member Hours Tracker\'!A:K',
+				range: '\'Tracker\'!A:K',
 			}),
 			'getVolunteerHours (fetch hours data)'
 		);
@@ -238,12 +238,12 @@ class SheetsManager {
 	async getUpcomingEvents(department = null) {
 		const spreadsheetId = process.env.EVENTS_SHEET_ID;
 
-		// Fetch data from "San Diego Signups" tab
+		// Fetch data from "Signup Sheet" tab
 		// Data is organized by columns, not rows
 		const response = await this.safeApiCall(
 			() => this.sheets.spreadsheets.values.get({
 				spreadsheetId,
-				range: '\'San Diego Signups\'!A1:ZZ11',
+				range: '\'Signup Sheet\'!A1:ZZ11',
 			}),
 			'getUpcomingEvents'
 		);
@@ -514,13 +514,13 @@ class SheetsManager {
 	 */
 	async getHoursLeaderboard(limit = 10) {
 		// Fetch from EVENTS_SHEET_ID (public sheet)
-		// "Member Hours Tracker" tab - Columns: A (Name), K (Total Hours)
+		// "Tracker" tab - Columns: A (Name), K (Total Hours)
 		const publicSheetId = process.env.EVENTS_SHEET_ID;
 
 		const response = await this.safeApiCall(
 			() => this.sheets.spreadsheets.values.get({
 				spreadsheetId: publicSheetId,
-				range: '\'Member Hours Tracker\'!A:K',
+				range: '\'Tracker\'!A:K',
 			}),
 			'getHoursLeaderboard'
 		);
