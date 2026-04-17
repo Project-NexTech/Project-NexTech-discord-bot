@@ -691,7 +691,7 @@ class SheetsManager {
 	/**
 	 * Check verification sheet for users who left the server and mark their rows
 	 * @param {Guild} guild - Discord guild to check members against
-	 * @returns {Promise<Object>} Result with counts of marked users
+	 * @returns {Promise<Object>} Result with counts of marked and unmarked users
 	 */
 	async checkLeftUsers(guild) {
 		const spreadsheetId = process.env.VERIFICATION_SHEET_ID;
@@ -753,6 +753,7 @@ class SheetsManager {
 		
 		const batchUpdates = [];
 		let markedCount = 0;
+		let unmarkedCount = 0;
 		let skippedCount = 0;
 
 		// Start from row 2 (index 1) to skip header
@@ -762,27 +763,42 @@ class SheetsManager {
 			
 			if (!discordId) continue;
 
-			// Check if user is still in the server
-			const member = guild.members.cache.get(discordId);
+			// Check if user is still in the server (check cache first, then fetch from API)
+			let member = guild.members.cache.get(discordId);
+			
+			// If not in cache, try fetching from the API to avoid false positives
+			// (new members may not be in cache yet)
+			if (!member) {
+				try {
+					member = await guild.members.fetch(discordId);
+				} catch {
+					// fetch throws if member is not in the guild — member stays null
+				}
+			}
+
+			// Helper: check if this row is currently marked red
+			const rowData = gridData[i];
+			let isMarkedRed = false;
+			if (rowData && rowData.values && rowData.values[0]) {
+				const cellFormat = rowData.values[0].effectiveFormat;
+				const bgColor = cellFormat?.backgroundColor;
+				
+				if (bgColor && 
+					Math.abs(bgColor.red - 0.956) < 0.01 && 
+					Math.abs(bgColor.green - 0.8) < 0.01 && 
+					Math.abs(bgColor.blue - 0.8) < 0.01) {
+					isMarkedRed = true;
+				}
+			}
 			
 			if (!member) {
-				// Check if row already has red background
-				const rowData = gridData[i];
-				if (rowData && rowData.values && rowData.values[0]) {
-					const cellFormat = rowData.values[0].effectiveFormat;
-					const bgColor = cellFormat?.backgroundColor;
-					
-					// Check if already marked red (allow small tolerance for floating point)
-					if (bgColor && 
-						Math.abs(bgColor.red - 0.956) < 0.01 && 
-						Math.abs(bgColor.green - 0.8) < 0.01 && 
-						Math.abs(bgColor.blue - 0.8) < 0.01) {
-						skippedCount++;
-						continue; // Skip this row, already marked
-					}
+				// User is not in the server
+				if (isMarkedRed) {
+					skippedCount++;
+					continue; // Already marked, nothing to do
 				}
 
-				// User left - mark the row with red background
+				// Mark the row with red background
 				const rowNumber = i + 1; // Sheet rows are 1-indexed
 				
 				batchUpdates.push({
@@ -809,6 +825,34 @@ class SheetsManager {
 				
 				markedCount++;
 				console.log(`[CheckLeftUsers] Marked row ${rowNumber} - User ${discordId} left the server`);
+			} else if (isMarkedRed) {
+				// User IS in the server but row is red — unmark it
+				const rowNumber = i + 1;
+				
+				batchUpdates.push({
+					repeatCell: {
+						range: {
+							sheetId: sheetId,
+							startRowIndex: i,
+							endRowIndex: i + 1,
+							startColumnIndex: 0,
+							endColumnIndex: 10, // Columns A-J
+						},
+						cell: {
+							userEnteredFormat: {
+								backgroundColor: {
+									red: 1,
+									green: 1,
+									blue: 1,
+								},
+							},
+						},
+						fields: 'userEnteredFormat.backgroundColor',
+					},
+				});
+				
+				unmarkedCount++;
+				console.log(`[CheckLeftUsers] Unmarked row ${rowNumber} - User ${discordId} is in the server`);
 			}
 		}
 
@@ -826,12 +870,12 @@ class SheetsManager {
 
 			if (!batchResult) {
 				console.error('[CheckLeftUsers] Failed to apply formatting updates');
-				return { checked: rows.length - 1, marked: 0, skipped: skippedCount };
+				return { checked: rows.length - 1, marked: 0, unmarked: 0, skipped: skippedCount };
 			}
 		}
 
-		console.log(`[CheckLeftUsers] Checked ${rows.length - 1} users, marked ${markedCount} as left, skipped ${skippedCount} already marked`);
-		return { checked: rows.length - 1, marked: markedCount, skipped: skippedCount };
+		console.log(`[CheckLeftUsers] Checked ${rows.length - 1} users, marked ${markedCount} as left, unmarked ${unmarkedCount}, skipped ${skippedCount} already marked`);
+		return { checked: rows.length - 1, marked: markedCount, unmarked: unmarkedCount, skipped: skippedCount };
 	}
 
 	/**

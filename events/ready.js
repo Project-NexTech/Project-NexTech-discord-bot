@@ -83,7 +83,7 @@ module.exports = {
 					const guildId = process.env.GUILD_ID;
 					const guild = await client.guilds.fetch(guildId);
 					const result = await sheetsManager.checkLeftUsers(guild);
-					console.log(`[LeftUsersCheck] Completed: ${result.checked} checked, ${result.marked} marked`);
+					console.log(`[LeftUsersCheck] Completed: ${result.checked} checked, ${result.marked} marked, ${result.unmarked || 0} unmarked`);
 				};
 
 				// Run immediately on startup
