@@ -153,6 +153,7 @@ const HEALTH_CHECK_INTERVAL = 2 * 60 * 1000; // 2 minutes in milliseconds
 
 function sendHealthCheckPing() {
 	https.get(HEALTH_CHECK_URL, (res) => {
+		res.resume(); // Consume response data to free up memory
 		if (res.statusCode === 200) {
 			console.log('✅ Health check ping sent successfully');
 		} else {
