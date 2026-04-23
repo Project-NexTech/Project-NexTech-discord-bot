@@ -460,11 +460,49 @@ class SheetsManager {
 			return false;
 		}
 
-		if (response?.data?.updates?.updatedRange) {
-			console.log(`✅ Logged verification to range: ${response.data.updates.updatedRange}`);
+		const updatedRange = response?.data?.updates?.updatedRange;
+		if (updatedRange) {
+			console.log(`✅ Logged verification to range: ${updatedRange}`);
 		}
 		else {
 			console.warn('⚠️ Verification append succeeded without updatedRange info.');
+		}
+
+		// If a custom nickname was supplied, attach it as a cell note on the Name cell (column B)
+		if (userData.customNickname && updatedRange) {
+			// updatedRange looks like "'#nextech-verify'!A42:J42" — pull the row number
+			const rowMatch = updatedRange.match(/![A-Z]+(\d+):/);
+			const rowNumber = rowMatch ? parseInt(rowMatch[1], 10) : null;
+
+			if (rowNumber) {
+				const sheetId = await this.getSheetId(spreadsheetId, '#nextech-verify');
+				if (sheetId !== null) {
+					await this.safeApiCall(
+						() => this.sheets.spreadsheets.batchUpdate({
+							spreadsheetId,
+							resource: {
+								requests: [{
+									updateCells: {
+										range: {
+											sheetId,
+											startRowIndex: rowNumber - 1,
+											endRowIndex: rowNumber,
+											startColumnIndex: 1, // Column B
+											endColumnIndex: 2,
+										},
+										rows: [{ values: [{ note: `${userData.customNickname}` }] }],
+										fields: 'note',
+									},
+								}],
+							},
+						}),
+						'verifyUser (set custom nickname note)'
+					);
+				}
+			}
+			else {
+				console.warn('⚠️ Could not parse row number from updatedRange; custom nickname note not written.');
+			}
 		}
 
 		return true;

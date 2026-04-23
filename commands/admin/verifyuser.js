@@ -68,6 +68,13 @@ module.exports = {
 				.setDescription('How they found out about NT')
 				.setRequired(false),
 		)
+		.addStringOption(option =>
+			option
+				.setName('nickname')
+				.setDescription('Override server nickname (without [ɴᴛ] prefix). Defaults to first name.')
+				.setRequired(false)
+				.setMaxLength(27),
+		)
 		.setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles),
 	async autocomplete(interaction) {
 		try {
@@ -201,6 +208,11 @@ module.exports = {
 			}
 			
 			// Get all options
+			const rawNickname = interaction.options.getString('nickname');
+			const customNickname = rawNickname
+				? rawNickname.replace(/^\[ɴᴛ\]\s*/i, '').trim() || null
+				: null;
+
 			const userData = {
 				discordId: targetUser.id,
 				username: targetUser.username,
@@ -212,6 +224,7 @@ module.exports = {
 				inviteSource: interaction.options.getString('invite_source'),
 				hasIRLConnection: interaction.options.getBoolean('irl_connection') ?? false,
 				verifiedBy: interaction.user.username,
+				customNickname,
 			};
 
 			// Check for missing optional fields
@@ -313,10 +326,14 @@ module.exports = {
 				const ntMemberRoleCheck = interaction.guild.roles.cache.find(role =>
 					role.name.toLowerCase().includes('nt member'),
 				);
-				
+
 				let conflictingMember = null;
-				
-				if (ntMemberRoleCheck) {
+
+				// Custom nickname override skips conflict detection — verifier has chosen an explicit display name
+				if (customNickname) {
+					newUserNickname = `[ɴᴛ] ${customNickname}`;
+				}
+				else if (ntMemberRoleCheck) {
 					// Use cached members only (instant, no rate limit)
 					// Discord.js automatically caches members with GuildMembers intent
 					const membersToCheck = interaction.guild.members.cache;
@@ -544,7 +561,7 @@ module.exports = {
 							warningMessage += conflictResolutionMsg;
 						}
 					}
-				} else {
+				} else if (!customNickname) {
 					// No conflict, set normal nickname
 					newUserNickname = `[ɴᴛ] ${firstName}`;
 				}
@@ -552,9 +569,14 @@ module.exports = {
 			catch (nicknameError) {
 				console.error('Failed to detect nickname conflict:', nicknameError);
 				console.error(nicknameError.stack);
-				// Continue with default nickname
-				const firstName = userData.name.trim().split(/\s+/)[0];
-				newUserNickname = `[ɴᴛ] ${firstName}`;
+				// Continue with default nickname — honor override if provided
+				if (customNickname) {
+					newUserNickname = `[ɴᴛ] ${customNickname}`;
+				}
+				else {
+					const firstName = userData.name.trim().split(/\s+/)[0];
+					newUserNickname = `[ɴᴛ] ${firstName}`;
+				}
 			}
 
 			// ============================================
@@ -769,13 +791,16 @@ module.exports = {
 			const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : '';
 			const lastInitial = lastName && lastName !== '???' ? lastName.charAt(0).toUpperCase() : '';
 
+			const customNickname = userData.customNickname || null;
+
 			const ntMemberRoleCheck = interaction.guild.roles.cache.find(role =>
 				role.name.toLowerCase().includes('nt member'),
 			);
 
 			let conflictingMember = null;
 
-			if (ntMemberRoleCheck) {
+			// Custom nickname override skips conflict detection entirely
+			if (!customNickname && ntMemberRoleCheck) {
 				const membersToCheck = interaction.guild.members.cache;
 
 				const membersWithSameFirstName = membersToCheck.filter(member => {
@@ -903,7 +928,9 @@ module.exports = {
 
 			// No conflict or auto-resolvable - proceed with verification
 			// Set nickname for new user
-			if (!conflictingMember) {
+			if (customNickname) {
+				newUserNickname = `[ɴᴛ] ${customNickname}`;
+			} else if (!conflictingMember) {
 				newUserNickname = `[ɴᴛ] ${firstName}`;
 			} else {
 				// Auto-resolve: add last initial to both
@@ -912,7 +939,7 @@ module.exports = {
 
 				newUserNickname = `[ɴᴛ] ${firstName} ?.`; // Use "?." for unknown last initial
 				conflictingMemberToUpdate = conflictingMember;
-				conflictingMemberNewNickname = existingMemberLastInitial 
+				conflictingMemberNewNickname = existingMemberLastInitial
 					? `[ɴᴛ] ${firstName} ${existingMemberLastInitial}.`
 					: `[ɴᴛ] ${firstName}`;
 			}

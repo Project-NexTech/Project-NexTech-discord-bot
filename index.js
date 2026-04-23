@@ -165,7 +165,7 @@ function sendHealthCheckPing() {
 }
 
 // Send initial ping after bot is ready
-client.once('ready', () => {
+client.once('clientReady', () => {
 	if (HEALTH_CHECK_INTERVAL > 0) {
 		sendHealthCheckPing();
 		// Set up interval for subsequent pings

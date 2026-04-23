@@ -7,7 +7,7 @@ const guildId = process.env.GUILD_ID;
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
 	console.log('Bot is ready! Fetching roles...\n');
 	
 	const guild = await client.guilds.fetch(guildId);
