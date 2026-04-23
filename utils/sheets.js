@@ -235,7 +235,7 @@ class SheetsManager {
 	 * @param {string|null} department - Department filter ('all' for all departments)
 	 * @returns {Promise<Array>} List of upcoming events
 	 */
-	async getUpcomingEvents(department = null) {
+	async getUpcomingEvents(department = null, maxDays = null) {
 		const spreadsheetId = process.env.EVENTS_SHEET_ID;
 
 		// Fetch data from "Signup Sheet" tab
@@ -260,6 +260,12 @@ class SheetsManager {
 
 		const now = new Date();
 		now.setHours(0, 0, 0, 0); // Set to start of day for comparison
+
+		let maxDate = null;
+		if (maxDays) {
+			maxDate = new Date(now);
+			maxDate.setDate(maxDate.getDate() + maxDays);
+		}
 
 		// Department mapping from course number prefix
 		const deptMapping = {
@@ -290,6 +296,7 @@ class SheetsManager {
 			if (Number.isNaN(parsed)) continue; // Skip cells that aren't valid dates
 			const eventDate = new Date(parsed);
 			if (eventDate < now) continue; // Skip past events
+			if (maxDate && eventDate >= maxDate) continue; // Skip events beyond max days
 
 			const safe = (rowIndex) => (rows[rowIndex] && rows[rowIndex][col]) ? String(rows[rowIndex][col]) : '';
 

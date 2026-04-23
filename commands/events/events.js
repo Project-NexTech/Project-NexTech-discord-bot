@@ -20,12 +20,21 @@ module.exports = {
 					{ name: 'Natural Sciences', value: 'Natural Sciences' },
 					{ name: 'All', value: 'all' },
 				),
+		)
+		.addIntegerOption(option =>
+			option
+				.setName('days')
+				.setDescription('Only show events in the next X days (default: 7)')
+				.setRequired(false)
+				.setMinValue(1)
+				.setMaxValue(365),
 		),
 	async execute(interaction) {
 		await interaction.deferReply();
 
 		try {
 			let department = interaction.options.getString('department');
+			const days = interaction.options.getInteger('days') ?? 7;
 
 			// If no department specified, use user's departments
 			if (!department) {
@@ -49,12 +58,13 @@ module.exports = {
 			}
 
 			// Fetch events from Google Sheets
-			const events = await sheetsManager.getUpcomingEvents(department);
+			const events = await sheetsManager.getUpcomingEvents(department, days);
 
 			if (!events || events.length === 0) {
 				const deptText = department ? ` for ${department}` : '';
+				const daysText = days ? ` in the next ${days} day${days === 1 ? '' : 's'}` : '';
 				return interaction.editReply({
-					content: `📅 No upcoming events found${deptText}.`,
+					content: `📅 No upcoming events found${deptText}${daysText}.`,
 					ephemeral: false,
 				});
 			}
