@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-	"start": "node index.js"
+	"start": "node index.js",
+	"deploy-prod": "node --env-file=prod.env deploy-commands.js",
+	"start-prod": "node --env-file=prod.env index.js"
   },
   "keywords": [],
   "author": "",

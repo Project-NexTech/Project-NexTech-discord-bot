@@ -149,7 +149,7 @@ client.login(token);
 
 // Health check ping every 2 minutes
 const HEALTH_CHECK_URL = 'https://hc-ping.com/98830f7e-ec5e-434b-85e3-160450ef27b1';
-const HEALTH_CHECK_INTERVAL = 2 * 60 * 1000; // 2 minutes in milliseconds
+const HEALTH_CHECK_INTERVAL = 0; // 0 disables pings (was 2 * 60 * 1000), 2 minutes in milliseconds
 
 function sendHealthCheckPing() {
 	https.get(HEALTH_CHECK_URL, (res) => {
@@ -166,9 +166,13 @@ function sendHealthCheckPing() {
 
 // Send initial ping after bot is ready
 client.once('ready', () => {
-	sendHealthCheckPing();
-	// Set up interval for subsequent pings
-	setInterval(sendHealthCheckPing, HEALTH_CHECK_INTERVAL);
+	if (HEALTH_CHECK_INTERVAL > 0) {
+		sendHealthCheckPing();
+		// Set up interval for subsequent pings
+		setInterval(sendHealthCheckPing, HEALTH_CHECK_INTERVAL);
+	} else {
+		console.log('⏸️ Health check pings are currently paused.');
+	}
 });
 
 // Windows-specific workaround for SIGINT (Ctrl+C) handling
