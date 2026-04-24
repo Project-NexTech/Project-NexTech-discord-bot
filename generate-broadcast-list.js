@@ -47,7 +47,8 @@ console.log(`📖 Reading input file: ${inputFile}`);
 let csvContent;
 try {
 	csvContent = fs.readFileSync(inputFile, 'utf8');
-} catch (error) {
+}
+catch (error) {
 	console.error(`❌ Error reading file: ${error.message}`);
 	process.exit(1);
 }
@@ -80,7 +81,7 @@ console.log(`✅ Found ${names.length} names`);
 // Format: Simple CSV with header
 const outputLines = [
 	'Name',
-	...names
+	...names,
 ];
 
 const outputContent = outputLines.join('\n');
@@ -94,7 +95,8 @@ try {
 	console.log(`   Output file: ${outputFile}`);
 	console.log(`   Names:       ${names.length}`);
 	console.log(`\n💡 You can now use /broadcast with the "Custom List (CSV)" option`);
-} catch (error) {
+}
+catch (error) {
 	console.error(`❌ Error writing output file: ${error.message}`);
 	process.exit(1);
 }
@@ -117,15 +119,18 @@ function parseCSVLine(line) {
 				// Escaped quote
 				currentColumn += '"';
 				i++; // Skip next quote
-			} else {
+			}
+			else {
 				// Toggle quote state
 				inQuotes = !inQuotes;
 			}
-		} else if (char === ',' && !inQuotes) {
+		}
+		else if (char === ',' && !inQuotes) {
 			// End of column
 			columns.push(currentColumn);
 			currentColumn = '';
-		} else {
+		}
+		else {
 			currentColumn += char;
 		}
 	}

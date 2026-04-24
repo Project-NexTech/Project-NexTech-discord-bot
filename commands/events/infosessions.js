@@ -17,7 +17,7 @@ module.exports = {
 			// Filter for Project NexTech Info Session events that haven't started yet
 			const infoSessions = scheduledEvents.filter(event => 
 				event.name === 'Project NexTech Info Session' &&
-				event.scheduledStartAt > new Date()
+				event.scheduledStartAt > new Date(),
 			);
 
 			if (infoSessions.size === 0) {
@@ -28,7 +28,7 @@ module.exports = {
 
 			// Sort by start time (earliest first)
 			const sortedSessions = Array.from(infoSessions.values()).sort((a, b) => 
-				a.scheduledStartAt - b.scheduledStartAt
+				a.scheduledStartAt - b.scheduledStartAt,
 			);
 
 			// Create embed
@@ -62,17 +62,18 @@ module.exports = {
 				embed.addFields({
 					name: `Info Session #${i + 1}`,
 					value: fieldValue,
-					inline: false
+					inline: false,
 				});
 			}
 
 			embed.setFooter({ 
-				text: `${sortedSessions.length} upcoming session${sortedSessions.length !== 1 ? 's' : ''} found` 
+				text: `${sortedSessions.length} upcoming session${sortedSessions.length !== 1 ? 's' : ''} found`, 
 			});
 
 			await interaction.editReply({ embeds: [embed] });
 
-		} catch (error) {
+		}
+		catch (error) {
 			console.error('[InfoSessions] Error:', error);
 			await interaction.editReply({
 				content: '❌ An error occurred while fetching info sessions.',

@@ -34,7 +34,7 @@ module.exports = {
 					.setColor(0x0099FF)
 					.setAuthor({
 						name: `${message.author.tag} (${message.author.id})`,
-						iconURL: message.author.displayAvatarURL({ dynamic: true })
+						iconURL: message.author.displayAvatarURL({ dynamic: true }),
 					})
 					.setDescription(message.content || '*No text content*')
 					.setTimestamp(message.createdAt)
@@ -61,7 +61,7 @@ module.exports = {
 				const rolePing = verificationTeamRoleId ? `<@&${verificationTeamRoleId}>` : '';
 				await verificationChannel.send({ 
 					content: rolePing,
-					embeds: [embed] 
+					embeds: [embed], 
 				});
 
 				// Forward any attachments
@@ -71,7 +71,8 @@ module.exports = {
 				}
 
 				console.log(`Forwarded DM from ${message.author.tag} to verification channel`);
-			} catch (error) {
+			}
+			catch (error) {
 				console.error('Error forwarding DM:', error);
 			}
 		}

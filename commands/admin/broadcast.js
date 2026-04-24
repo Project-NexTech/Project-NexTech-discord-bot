@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { hasRequiredRole } = require('../../utils/helpers');
 const sheetsManager = require('../../utils/sheets');
 const fs = require('fs');
@@ -25,7 +25,7 @@ module.exports = {
 					{ name: 'Unenrolled Only', value: 'unenrolled' },
 					{ name: 'Unverified Only', value: 'unverified' },
 					{ name: 'Paused Only', value: 'paused' },
-					{ name: 'Custom List (CSV)', value: 'csv' }
+					{ name: 'Custom List (CSV)', value: 'csv' },
 				))
 		.addStringOption(option =>
 			option.setName('csv_url')
@@ -37,7 +37,7 @@ module.exports = {
 			
 			// Check if user has required role
 			const allowedRoleIds = [
-				process.env.EC_ROLE_ID
+				process.env.EC_ROLE_ID,
 			].filter(Boolean); // Filter out undefined values
 			const member = interaction.member;
 
@@ -74,7 +74,8 @@ module.exports = {
 				console.log('[Broadcast] Cache is empty, fetching members...');
 				await interaction.guild.members.fetch({ force: true });
 				console.log('[Broadcast] Members fetched');
-			} else {
+			}
+			else {
 				console.log(`[Broadcast] Using cached members (${interaction.guild.members.cache.size} in cache)`);
 			}
 			
@@ -89,14 +90,15 @@ module.exports = {
 				}
 				
 				targetMembers = interaction.guild.members.cache.filter(m => 
-					m.roles.cache.has(ntMemberRoleId) && !m.user.bot
+					m.roles.cache.has(ntMemberRoleId) && !m.user.bot,
 				);
 				recipientDescription = 'All NT Members';
 				
-			} else if (recipientType === 'enrolled') {
+			}
+			else if (recipientType === 'enrolled') {
 				// NT Enrolled only
 				const ntEnrolledRole = interaction.guild.roles.cache.find(role =>
-					role.name.toLowerCase().includes('nt enrolled')
+					role.name.toLowerCase().includes('nt enrolled'),
 				);
 				
 				if (!ntEnrolledRole) {
@@ -106,14 +108,15 @@ module.exports = {
 				}
 				
 				targetMembers = interaction.guild.members.cache.filter(m => 
-					m.roles.cache.has(ntEnrolledRole.id) && !m.user.bot
+					m.roles.cache.has(ntEnrolledRole.id) && !m.user.bot,
 				);
 				recipientDescription = 'NT Enrolled Members';
 				
-			} else if (recipientType === 'unenrolled') {
+			}
+			else if (recipientType === 'unenrolled') {
 				// NT Unenrolled only
 				const ntUnenrolledRole = interaction.guild.roles.cache.find(role =>
-					role.name.toLowerCase().includes('nt unenrolled')
+					role.name.toLowerCase().includes('nt unenrolled'),
 				);
 				
 				if (!ntUnenrolledRole) {
@@ -123,11 +126,12 @@ module.exports = {
 				}
 				
 				targetMembers = interaction.guild.members.cache.filter(m => 
-					m.roles.cache.has(ntUnenrolledRole.id) && !m.user.bot
+					m.roles.cache.has(ntUnenrolledRole.id) && !m.user.bot,
 				);
 				recipientDescription = 'NT Unenrolled Members';
 				
-			} else if (recipientType === 'unverified') {
+			}
+			else if (recipientType === 'unverified') {
 				// Unverified only (both NexTech Unverified and Combined Unverified)
 				const ntUnverifiedRoleId = process.env.NT_UNVERIFIED_ROLE_ID;
 				const combinedUnverifiedRoleId = process.env.COMBINED_UNVERIFIED_ROLE_ID;
@@ -144,7 +148,8 @@ module.exports = {
 				});
 				recipientDescription = 'Unverified Members';
 				
-			} else if (recipientType === 'paused') {
+			}
+			else if (recipientType === 'paused') {
 				// Paused or Not a Member - fetch from Google Sheets
 				console.log('[Broadcast] Fetching membership status from Google Sheets...');
 				const membershipData = await sheetsManager.getMembershipStatus();
@@ -157,7 +162,7 @@ module.exports = {
 				
 				// Filter for Paused or Not a Member status
 				const pausedMembers = membershipData.filter(data => 
-					data.status === 'Paused' || data.status === 'Not a Member'
+					data.status === 'Paused' || data.status === 'Not a Member',
 				);
 				
 				console.log(`[Broadcast] Found ${pausedMembers.length} paused/not a member entries in sheets`);
@@ -181,7 +186,8 @@ module.exports = {
 						if (guildMember && !guildMember.user.bot) {
 							guildMembers.set(discordId, guildMember);
 						}
-					} catch (error) {
+					}
+					catch (error) {
 						console.log(`[Broadcast] Could not fetch member ${discordId}: ${error.message}`);
 					}
 				}
@@ -189,7 +195,8 @@ module.exports = {
 				targetMembers = guildMembers;
 				recipientDescription = 'Paused/Not a Member Users';
 				
-			} else if (recipientType === 'csv') {
+			}
+			else if (recipientType === 'csv') {
 				// Custom list from CSV
 				const csvUrl = interaction.options.getString('csv_url');
 				const defaultCsvPath = path.join(__dirname, '..', '..', 'data', 'broadcast-list.csv');
@@ -201,22 +208,26 @@ module.exports = {
 					console.log(`[Broadcast] Downloading CSV from URL: ${csvUrl}`);
 					try {
 						csvContent = await downloadFile(csvUrl);
-					} catch (error) {
+					}
+					catch (error) {
 						return interaction.editReply({
 							content: `❌ Failed to download CSV from URL: ${error.message}`,
 						});
 					}
-				} else if (fs.existsSync(defaultCsvPath)) {
+				}
+				else if (fs.existsSync(defaultCsvPath)) {
 					// Read from default file path
 					console.log(`[Broadcast] Reading CSV from file: ${defaultCsvPath}`);
 					try {
 						csvContent = fs.readFileSync(defaultCsvPath, 'utf8');
-					} catch (error) {
+					}
+					catch (error) {
 						return interaction.editReply({
 							content: `❌ Failed to read CSV file: ${error.message}`,
 						});
 					}
-				} else {
+				}
+				else {
 					return interaction.editReply({
 						content: '❌ No CSV source provided. Either provide a CSV URL or upload a CSV file using `/broadcastupload` first.',
 					});
@@ -240,7 +251,7 @@ module.exports = {
 						spreadsheetId: volunteersSheetId,
 						range: '\'Limited Data\'!A:E',
 					}),
-					'broadcast CSV (fetch volunteer IDs)'
+					'broadcast CSV (fetch volunteer IDs)',
 				);
 				
 				if (!volunteersResponse || !volunteersResponse.data) {
@@ -272,7 +283,8 @@ module.exports = {
 					
 					if (discordId) {
 						discordIds.push(discordId);
-					} else {
+					}
+					else {
 						unmatchedNames.push(name);
 					}
 				}
@@ -293,7 +305,8 @@ module.exports = {
 						if (guildMember && !guildMember.user.bot) {
 							guildMembers.set(discordId, guildMember);
 						}
-					} catch (error) {
+					}
+					catch (error) {
 						console.log(`[Broadcast] Could not fetch member ${discordId}: ${error.message}`);
 					}
 				}
@@ -330,7 +343,7 @@ module.exports = {
 				.setDescription(`You are about to send the following message to **${targetMembers.size} ${recipientDescription}**:`)
 				.addFields(
 					{ name: '📝 Message Preview', value: message },
-					{ name: '👥 Recipients', value: `${targetMembers.size} ${recipientDescription}` }
+					{ name: '👥 Recipients', value: `${targetMembers.size} ${recipientDescription}` },
 				)
 				.setFooter({ text: 'Click "Send Broadcast" to confirm or "Cancel" to abort' })
 				.setTimestamp();
@@ -353,7 +366,7 @@ module.exports = {
 			const response = await interaction.fetchReply();
 			const collector = response.createMessageComponentCollector({ 
 				filter: collectorFilter, 
-				time: 60_000 
+				time: 60_000, 
 			});
 
 			collector.on('collect', async (buttonInteraction) => {
@@ -382,7 +395,7 @@ module.exports = {
 					let messagesSentInCurrentMinute = 0;
 					let currentMinuteStart = Date.now();
 
-					for (const [memberId, member] of targetMembers) {
+					for (const [, targetMember] of targetMembers) {
 						try {
 							// Check if we've hit the rate limit (5 DMs per second, ~300 per minute to be safe)
 							// Discord's actual limit is higher but we stay conservative
@@ -412,21 +425,23 @@ module.exports = {
 								.setDescription(message)
 								.setFooter({ 
 									text: `Sent by ${interaction.user.tag}`,
-									iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+									iconURL: interaction.user.displayAvatarURL({ dynamic: true }),
 								})
 								.setTimestamp();
 
-							await member.send({ embeds: [embed] });
+							await targetMember.send({ embeds: [embed] });
 							successCount++;
 							messagesSentInCurrentMinute++;
-						} catch (error) {
+						}
+						catch (error) {
 							// Check if it's a rate limit error
 							if (error.code === 50007) {
 								// Cannot send messages to this user
 								failCount++;
 								failedMembers.push(`${member.user.tag} (${member.user.id}) - DMs disabled`);
 								console.error(`[Broadcast] Cannot send DM to ${member.user.tag}: DMs disabled`);
-							} else if (error.code === 429 || error.httpStatus === 429) {
+							}
+							else if (error.code === 429 || error.httpStatus === 429) {
 								// Rate limited - wait and retry
 								const retryAfter = error.retry_after ? error.retry_after * 1000 : 5000;
 								console.log(`[Broadcast] Rate limited! Waiting ${retryAfter}ms before retrying...`);
@@ -440,21 +455,23 @@ module.exports = {
 										.setDescription(message)
 										.setFooter({ 
 											text: `Sent by ${interaction.user.tag}`,
-											iconURL: interaction.user.displayAvatarURL({ dynamic: true })
+											iconURL: interaction.user.displayAvatarURL({ dynamic: true }),
 										})
 										.setTimestamp();
 									
-									await member.send({ embeds: [embed] });
+									await targetMember.send({ embeds: [embed] });
 									successCount++;
 									messagesSentInCurrentMinute++;
 									// Reset the rate limit window after being rate limited
 									currentMinuteStart = Date.now();
-								} catch (retryError) {
+								}
+								catch (retryError) {
 									failCount++;
 									failedMembers.push(`${member.user.tag} (${member.user.id}) - ${retryError.message}`);
 									console.error(`[Broadcast] Retry failed for ${member.user.tag}:`, retryError.message);
 								}
-							} else {
+							}
+							else {
 								failCount++;
 								failedMembers.push(`${member.user.tag} (${member.user.id}) - ${error.message}`);
 								console.error(`[Broadcast] Failed to send DM to ${member.user.tag}:`, error.message);
@@ -472,26 +489,28 @@ module.exports = {
 						.addFields(
 							{ name: '✅ Successful', value: `${successCount}`, inline: true },
 							{ name: '❌ Failed', value: `${failCount}`, inline: true },
-							{ name: '📝 Message', value: message.length > 100 ? message.substring(0, 100) + '...' : message }
+							{ name: '📝 Message', value: message.length > 100 ? message.substring(0, 100) + '...' : message },
 						)
 						.setTimestamp();
 
 					if (failedMembers.length > 0 && failedMembers.length <= 10) {
 						reportEmbed.addFields({
 							name: '⚠️ Failed Recipients',
-							value: failedMembers.join('\n')
+							value: failedMembers.join('\n'),
 						});
-					} else if (failedMembers.length > 10) {
+					}
+					else if (failedMembers.length > 10) {
 						reportEmbed.addFields({
 							name: '⚠️ Failed Recipients',
-							value: `${failedMembers.length} members (too many to list)`
+							value: `${failedMembers.length} members (too many to list)`,
 						});
 					}
 
-					await interaction.followUp({ embeds: [reportEmbed]});
+					await interaction.followUp({ embeds: [reportEmbed] });
 					collector.stop();
 					
-				} catch (error) {
+				}
+				catch (error) {
 					console.error('[Broadcast] Error in button handler:', error);
 					await buttonInteraction.update({
 						content: `❌ An error occurred while broadcasting: ${error.message}`,
@@ -512,7 +531,8 @@ module.exports = {
 					});
 				}
 			});
-		} catch (error) {
+		}
+		catch (error) {
 			console.error('[Broadcast] Error in execute:', error);
 			console.error(error.stack);
 			
@@ -522,7 +542,8 @@ module.exports = {
 					content: `❌ An error occurred: ${error.message}`,
 					flags: MessageFlags.Ephemeral,
 				});
-			} else {
+			}
+			else {
 				await interaction.editReply({
 					content: `❌ An error occurred: ${error.message}`,
 				});
@@ -604,15 +625,18 @@ function parseCSVLine(line) {
 				// Escaped quote
 				currentColumn += '"';
 				i++; // Skip next quote
-			} else {
+			}
+			else {
 				// Toggle quote state
 				inQuotes = !inQuotes;
 			}
-		} else if (char === ',' && !inQuotes) {
+		}
+		else if (char === ',' && !inQuotes) {
 			// End of column
 			columns.push(currentColumn);
 			currentColumn = '';
-		} else {
+		}
+		else {
 			currentColumn += char;
 		}
 	}

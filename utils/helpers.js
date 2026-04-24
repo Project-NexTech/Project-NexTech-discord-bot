@@ -140,7 +140,8 @@ function createEventsEmbed(events, department = null, currentPage = 1, totalPage
 			// Highlight "NO SIGNUPS" status with bold and warning emoji
 			if (event.status === 'NO SIGNUPS') {
 				fieldValue += `📊 **Status: ⚠️ NO SIGNUPS ⚠️**\n`;
-			} else {
+			}
+			else {
 				fieldValue += `📊 **Status:** ${event.status}\n`;
 			}
 		}

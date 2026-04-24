@@ -20,62 +20,63 @@
 const http = require('http');
 
 function setupMemberEndpoint(client) {
-  const port = parseInt(process.env.ONBOARD_PORT, 10);
-  const secret = process.env.ONBOARD_SECRET;
+	const port = parseInt(process.env.ONBOARD_PORT, 10);
+	const secret = process.env.ONBOARD_SECRET;
 
-  if (!port || !secret) {
-	console.error('[onboard] ONBOARD_PORT and ONBOARD_SECRET must be set; endpoint disabled.');
-	return;
-  }
+	if (!port || !secret) {
+		console.error('[onboard] ONBOARD_PORT and ONBOARD_SECRET must be set; endpoint disabled.');
+		return;
+	}
 
-  const server = http.createServer((req, res) => {
+	const server = http.createServer((req, res) => {
 	// Only accept POST /members/add
-	if (req.method !== 'POST' || req.url !== '/members/add') {
+		if (req.method !== 'POST' || req.url !== '/members/add') {
 	  return sendJson(res, 404, { ok: false, error: 'Not found' });
-	}
+		}
 
-	// Auth check (constant-time comparison to avoid timing attacks)
-	const authHeader = req.headers['authorization'] || '';
-	const expected = 'Bearer ' + secret;
-	if (!safeEqual(authHeader, expected)) {
+		// Auth check (constant-time comparison to avoid timing attacks)
+		const authHeader = req.headers['authorization'] || '';
+		const expected = 'Bearer ' + secret;
+		if (!safeEqual(authHeader, expected)) {
 	  return sendJson(res, 401, { ok: false, error: 'Unauthorized' });
-	}
+		}
 
-	// Read body (cap at 8 KB to avoid abuse)
-	let body = '';
-	let tooLarge = false;
-	req.on('data', chunk => {
+		// Read body (cap at 8 KB to avoid abuse)
+		let body = '';
+		let tooLarge = false;
+		req.on('data', chunk => {
 	  body += chunk;
 	  if (body.length > 8192) {
-		tooLarge = true;
-		req.destroy();
+				tooLarge = true;
+				req.destroy();
 	  }
-	});
-	req.on('end', async () => {
+		});
+		req.on('end', async () => {
 	  if (tooLarge) {
-		return sendJson(res, 413, { ok: false, error: 'Payload too large' });
+				return sendJson(res, 413, { ok: false, error: 'Payload too large' });
 	  }
 
 	  try {
-		const detail = await handleAddMember(client);
-		sendJson(res, 200, { ok: true, detail: detail });
-	  } catch (e) {
-		console.error('[onboard] handleAddMember failed:', e);
-		sendJson(res, 500, { ok: false, error: String(e.message || e) });
+				const detail = await handleAddMember(client);
+				sendJson(res, 200, { ok: true, detail: detail });
 	  }
-	});
-	req.on('error', err => {
+			catch (e) {
+				console.error('[onboard] handleAddMember failed:', e);
+				sendJson(res, 500, { ok: false, error: String(e.message || e) });
+	  }
+		});
+		req.on('error', err => {
 	  console.error('[onboard] request error:', err);
+		});
 	});
-  });
 
-  server.listen(port, () => {
-	console.log('[onboard] listening on port ' + port);
-  });
+	server.listen(port, () => {
+		console.log('[onboard] listening on port ' + port);
+	});
 
-  server.on('error', err => {
-	console.error('[onboard] server error:', err);
-  });
+	server.on('error', err => {
+		console.error('[onboard] server error:', err);
+	});
 }
 
 const { performRoleSync } = require('../commands/admin/syncroles');
@@ -100,15 +101,17 @@ async function handleAddMember(client) {
 				if (staffChatChannel) {
 					await staffChatChannel.send({
 						content: `🔄 Automatic role sync triggered by member onboarding:`,
-						embeds: [result.embed]
+						embeds: [result.embed],
 					});
 				}
 			}
 			return 'Synced roles successfully';
-		} else {
+		}
+		else {
 			return `Sync failed: ${result.message || 'Unknown error'}`;
 		}
-	} catch (e) {
+	}
+	catch (e) {
 		console.error('[onboard] Error during automatic role sync:', e);
 		return `Sync failed: ${e.message}`;
 	}
@@ -117,22 +120,22 @@ async function handleAddMember(client) {
 // ---------- helpers ----------
 
 function sendJson(res, status, obj) {
-  const body = JSON.stringify(obj);
-  res.writeHead(status, {
-	'Content-Type': 'application/json',
-	'Content-Length': Buffer.byteLength(body),
-  });
-  res.end(body);
+	const body = JSON.stringify(obj);
+	res.writeHead(status, {
+		'Content-Type': 'application/json',
+		'Content-Length': Buffer.byteLength(body),
+	});
+	res.end(body);
 }
 
 function safeEqual(a, b) {
-  if (typeof a !== 'string' || typeof b !== 'string') return false;
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-	diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return diff === 0;
+	if (typeof a !== 'string' || typeof b !== 'string') return false;
+	if (a.length !== b.length) return false;
+	let diff = 0;
+	for (let i = 0; i < a.length; i++) {
+		diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+	}
+	return diff === 0;
 }
 
 module.exports = { setupMemberEndpoint };

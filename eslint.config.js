@@ -32,7 +32,6 @@ module.exports = [
 			'no-shadow': ['error', { allow: ['err', 'resolve', 'reject'] }],
 			'no-var': 'error',
 			'no-undef': 'off',
-			'no-anassigned-vars': 'error',
 			'object-curly-spacing': ['error', 'always'],
 			semi: ['error', 'always'],
 			'space-before-blocks': 'error',

@@ -20,7 +20,7 @@ module.exports = {
 					{ name: 'Natural Sciences', value: 'Natural Sciences' },
 					{ name: 'Marketing', value: 'Marketing' },
 					{ name: 'Logistics', value: 'Logistics' },
-					{ name: 'Policy/Intl', value: 'Policy/Intl'},
+					{ name: 'Policy/Intl', value: 'Policy/Intl' },
 					{ name: 'EC (not sure?)', value: 'EC' },
 				),
 		),

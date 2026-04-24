@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { hasRequiredRole } = require('../../utils/helpers');
 
 module.exports = {
@@ -72,7 +72,8 @@ module.exports = {
 					if (!memberExists) {
 						try {
 							await interaction.guild.members.fetch(memberId);
-						} catch (error) {
+						}
+						catch {
 							return interaction.editReply({
 								content: `❌ Could not find member with ID: ${memberId}`,
 							});
@@ -86,7 +87,7 @@ module.exports = {
 			
 			// Find all country roles (format: "CountryName (XX)")
 			const countryRolePattern = /^(.+) \(([A-Z]{2})\)$/;
-			const countryRoles = allRoles.filter(role => {
+			allRoles.filter(role => {
 				const match = role.name.match(countryRolePattern);
 				// Exclude roles that have numbers (which would be region roles)
 				return match && !/\(\w{2} \d+\)$/.test(role.name);
@@ -135,13 +136,13 @@ module.exports = {
 				.addFields(
 					{ name: '📍 Region Role', value: `\`${regionRoleName}\``, inline: false },
 					{ name: '🌐 Country Role', value: countryRole ? `\`${countryRoleName}\` (exists)` : `\`${countryRoleName}\` (will be created)`, inline: false },
-					{ name: '👥 Members to Add', value: memberIds.length > 0 ? `${memberIds.length} member(s)` : 'None', inline: true }
+					{ name: '👥 Members to Add', value: memberIds.length > 0 ? `${memberIds.length} member(s)` : 'None', inline: true },
 				);
 
 			if (!countryRole) {
 				confirmEmbed.addFields({
 					name: '⚠️ Note',
-					value: `The country role "${countryRoleName}" will be created first.`
+					value: `The country role "${countryRoleName}" will be created first.`,
 				});
 			}
 
@@ -176,7 +177,7 @@ module.exports = {
 			const response = await interaction.fetchReply();
 			const collector = response.createMessageComponentCollector({ 
 				filter: collectorFilter, 
-				time: 60_000 
+				time: 60_000, 
 			});
 
 			collector.on('collect', async (buttonInteraction) => {
@@ -245,7 +246,8 @@ module.exports = {
 								await guildMember.roles.add([countryRole.id, regionRole.id]);
 								addedCount++;
 								console.log(`[CreateRegion] Added roles to ${guildMember.user.tag}`);
-							} catch (error) {
+							}
+							catch {
 								console.error(`[CreateRegion] Failed to add roles to ${memberId}:`, error.message);
 								failedMembers.push(memberId);
 							}
@@ -258,21 +260,21 @@ module.exports = {
 						.setTitle('✅ Roles Created Successfully')
 						.addFields(
 							{ name: '🌐 Country Role', value: `<@&${countryRole.id}>`, inline: true },
-							{ name: '📍 Region Role', value: `<@&${regionRole.id}>`, inline: true }
+							{ name: '📍 Region Role', value: `<@&${regionRole.id}>`, inline: true },
 						);
 
 					if (memberIds.length > 0) {
 						successEmbed.addFields({
 							name: '👥 Members Added',
 							value: `${addedCount}/${memberIds.length} member(s)`,
-							inline: false
+							inline: false,
 						});
 
 						if (failedMembers.length > 0) {
 							successEmbed.addFields({
 								name: '⚠️ Failed to Add',
 								value: failedMembers.join(', '),
-								inline: false
+								inline: false,
 							});
 						}
 					}
@@ -284,7 +286,8 @@ module.exports = {
 
 					collector.stop();
 
-				} catch (error) {
+				}
+				catch {
 					console.error('[CreateRegion] Error in button handler:', error);
 					await buttonInteraction.update({
 						content: `❌ An error occurred while creating roles: ${error.message}`,
@@ -303,19 +306,22 @@ module.exports = {
 							embeds: [],
 							components: [],
 						});
-					} catch (error) {
+					}
+					catch {
 						console.error('[CreateRegion] Error updating timeout message:', error);
 					}
 				}
 			});
 
-		} catch (error) {
+		}
+		catch {
 			console.error('[CreateRegion] Error:', error);
 			const errorMessage = `❌ An error occurred: ${error.message}`;
 			
 			if (interaction.deferred) {
 				await interaction.editReply({ content: errorMessage, embeds: [], components: [] });
-			} else {
+			}
+			else {
 				await interaction.reply({ content: errorMessage, flags: MessageFlags.Ephemeral });
 			}
 		}
@@ -403,7 +409,7 @@ async function positionRoles(guild, countryRole, regionRole) {
 		// Sort each country's roles by region number (descending for Discord positioning)
 		// Discord positions work in reverse: higher position = higher in list
 		// So we sort descending (3, 2, 1) to display as ascending (1, 2, 3)
-		for (const [countryCode, roles] of rolesByCountry) {
+		for (const [, roles] of rolesByCountry) {
 			roles.sort((a, b) => {
 				const aMatch = a.name.match(regionRolePattern);
 				const bMatch = b.name.match(regionRolePattern);
@@ -441,7 +447,7 @@ async function positionRoles(guild, countryRole, regionRole) {
 				for (const role of roles) {
 					rolePositions.push({
 						role: role.id,
-						position: currentPosition++
+						position: currentPosition++,
 					});
 				}
 			}
@@ -452,7 +458,7 @@ async function positionRoles(guild, countryRole, regionRole) {
 		if (!existingCountryRoles.find(r => r.id === countryRole.id)) {
 			rolePositions.push({
 				role: countryRole.id,
-				position: currentPosition++
+				position: currentPosition++,
 			});
 		}
 
@@ -460,7 +466,7 @@ async function positionRoles(guild, countryRole, regionRole) {
 		for (const role of existingCountryRoles) {
 			rolePositions.push({
 				role: role.id,
-				position: currentPosition++
+				position: currentPosition++,
 			});
 		}
 
@@ -471,7 +477,8 @@ async function positionRoles(guild, countryRole, regionRole) {
 			console.log('[CreateRegion] Roles positioned successfully');
 		}
 
-	} catch (error) {
+	}
+	catch {
 		console.error('[CreateRegion] Error positioning roles:', error);
 		// Don't throw - role creation was successful, positioning is best-effort
 	}

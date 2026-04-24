@@ -40,7 +40,7 @@ module.exports = {
 			}
 
 			// Send DM to the new member
-			let dmSent = false;
+			
 			try {
 				const welcomeMessage = `Welcome to **Project NexTech**, ${newMember.user.username}! 🎉\n\n` +
 					`**Getting Started:**\n` +
@@ -52,7 +52,7 @@ module.exports = {
 					`If you have any questions, feel free to reach out to the leadership team by sending a DM to this bot!`;
 
 				await newMember.user.send(welcomeMessage);
-				dmSent = true;
+				
 			}
 			catch (dmError) {
 				console.error('Could not send DM to new member:', dmError);

@@ -13,7 +13,6 @@ module.exports = {
 			try {
 				const ids = interaction.customId.replace('nickname_conflict_', '').split('_');
 				const newUserId = ids[0];
-				const conflictingUserId = ids[1];
 
 				// Get pending verification data
 				if (!interaction.client.verificationPending || !interaction.client.verificationPending.has(newUserId)) {
@@ -35,7 +34,6 @@ module.exports = {
 					ntUnenrolledRole,
 					ntChatChannelId,
 					staffChatChannelId,
-					missingFields,
 					warningMessage,
 					timeoutId,
 					hadNtUnverified,
@@ -96,14 +94,16 @@ module.exports = {
 				try {
 					await targetMember.setNickname(`[ɴᴛ] ${newUserNickname}`);
 					console.log(`Set nickname for ${targetMember.user.tag} to [ɴᴛ] ${newUserNickname}`);
-				} catch (nickError) {
+				}
+				catch (nickError) {
 					console.error(`Failed to set nickname for ${targetMember.user.tag}:`, nickError);
 				}
 
 				try {
 					await conflictingMember.setNickname(`[ɴᴛ] ${existingUserNickname}`);
 					console.log(`Set nickname for ${conflictingMember.user.tag} to [ɴᴛ] ${existingUserNickname}`);
-				} catch (nickError) {
+				}
+				catch (nickError) {
 					console.error(`Failed to set nickname for ${conflictingMember.user.tag}:`, nickError);
 				}
 
@@ -145,10 +145,12 @@ module.exports = {
 						const staffChatChannel = await interaction.client.channels.fetch(staffChatChannelId);
 						if (staffChatChannel) {
 							await staffChatChannel.send({ embeds: [embed] });
-						} else {
+						}
+						else {
 							console.error('Staff chat channel not found');
 						}
-					} catch (channelError) {
+					}
+					catch (channelError) {
 						console.error('Could not send verification embed to staff chat:', channelError);
 					}
 				}
@@ -167,14 +169,16 @@ module.exports = {
 							await ntChatChannel.send(welcomeChannelMessage);
 						}
 					}
-				} catch (channelError) {
+				}
+				catch (channelError) {
 					console.error('Could not send welcome message to NT chat channel:', channelError);
 				}
 
 				// Clean up pending verification data
 				interaction.client.verificationPending.delete(newUserId);
 
-			} catch (error) {
+			}
+			catch (error) {
 				console.error('Error processing nickname conflict resolution:', error);
 				console.error(error.stack);
 				await interaction.editReply({

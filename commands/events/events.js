@@ -111,7 +111,7 @@ module.exports = {
 			
 			const message = await interaction.editReply({ 
 				embeds: [embed],
-				components: components
+				components: components,
 			});
 
 			// If only one page, we're done
@@ -122,14 +122,15 @@ module.exports = {
 			// Create collector for button interactions
 			const collector = message.createMessageComponentCollector({ 
 				filter: i => i.user.id === interaction.user.id && i.customId.startsWith('events_'),
-				time: 300_000 // 5 minutes
+				time: 300_000, // 5 minutes
 			});
 
 			collector.on('collect', async (buttonInteraction) => {
 				try {
 					if (buttonInteraction.customId === `events_prev_${interaction.id}`) {
 						currentPage = Math.max(0, currentPage - 1);
-					} else if (buttonInteraction.customId === `events_next_${interaction.id}`) {
+					}
+					else if (buttonInteraction.customId === `events_next_${interaction.id}`) {
 						currentPage = Math.min(totalPages - 1, currentPage + 1);
 					}
 
@@ -138,9 +139,10 @@ module.exports = {
 
 					await buttonInteraction.update({
 						embeds: [newEmbed],
-						components: [newButtons]
+						components: [newButtons],
 					});
-				} catch (error) {
+				}
+				catch {
 					console.error('Error handling pagination button:', error);
 				}
 			});
@@ -154,15 +156,16 @@ module.exports = {
 					disabledRow.addComponents(buttons);
 
 					await interaction.editReply({
-						components: [disabledRow]
+						components: [disabledRow],
 					});
-				} catch (error) {
+				}
+				catch {
 					// Interaction might be deleted, ignore
 				}
 			});
 
 		}
-		catch (error) {
+		catch {
 			console.error('Error in /events command:', error);
 			await interaction.editReply({
 				content: '❌ An error occurred while fetching events. Please try again later.',

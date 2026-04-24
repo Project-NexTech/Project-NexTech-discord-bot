@@ -21,7 +21,8 @@ function loadEventMapping() {
 			}
 			console.log(`[CalendarSync] Loaded ${eventMapping.size} event mapping(s) from file`);
 		}
-	} catch (error) {
+	}
+	catch (error) {
 		console.error('[CalendarSync] Error loading event mapping:', error);
 	}
 }
@@ -33,7 +34,8 @@ function saveEventMapping() {
 	try {
 		const obj = Object.fromEntries(eventMapping);
 		fs.writeFileSync(mappingFilePath, JSON.stringify(obj, null, 2), 'utf8');
-	} catch (error) {
+	}
+	catch (error) {
 		console.error('[CalendarSync] Error saving event mapping:', error);
 	}
 }
@@ -63,7 +65,8 @@ async function fetchCalendarEvents(calendarUrl) {
 		}
 
 		return infoSessions;
-	} catch (error) {
+	}
+	catch (error) {
 		console.error('[CalendarSync] Error fetching calendar:', error);
 		return [];
 	}
@@ -106,7 +109,8 @@ async function createDiscordEvent(guild, calendarEvent) {
 			if (bannerSource.startsWith('http://') || bannerSource.startsWith('https://')) {
 				// It's a URL, use it directly
 				bannerImage = bannerSource;
-			} else {
+			}
+			else {
 				// It's a local file path, read and convert to base64
 				try {
 					const bannerPath = path.isAbsolute(bannerSource) 
@@ -119,10 +123,12 @@ async function createDiscordEvent(guild, calendarEvent) {
 						const ext = path.extname(bannerPath).slice(1).toLowerCase();
 						const mimeType = ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/png';
 						bannerImage = `data:${mimeType};base64,${base64Image}`;
-					} else {
+					}
+					else {
 						console.warn(`[CalendarSync] Banner image not found at: ${bannerPath}`);
 					}
-				} catch (error) {
+				}
+				catch (error) {
 					console.error('[CalendarSync] Error reading banner image:', error);
 				}
 			}
@@ -143,7 +149,8 @@ async function createDiscordEvent(guild, calendarEvent) {
 		saveEventMapping(); // Persist to file
 		console.log(`[CalendarSync] Created Discord event for: ${calendarEvent.summary}`);
 		return discordEvent;
-	} catch (error) {
+	}
+	catch (error) {
 		console.error('[CalendarSync] Error creating Discord event:', error);
 		return null;
 	}
@@ -173,7 +180,8 @@ async function updateDiscordEvent(guild, discordEventId, calendarEvent) {
 		}
 
 		return discordEvent;
-	} catch (error) {
+	}
+	catch (error) {
 		console.error('[CalendarSync] Error updating Discord event:', error);
 		return null;
 	}
@@ -190,7 +198,8 @@ async function deleteDiscordEvent(guild, discordEventId) {
 		const discordEvent = await guild.scheduledEvents.fetch(discordEventId);
 		await discordEvent.delete();
 		console.log(`[CalendarSync] Deleted Discord event: ${discordEvent.name}`);
-	} catch (error) {
+	}
+	catch (error) {
 		console.error('[CalendarSync] Error deleting Discord event:', error);
 	}
 }
@@ -224,7 +233,7 @@ async function syncCalendarEvents(client) {
 		
 		// Filter for our managed events (Project NexTech Info Session)
 		const managedDiscordEvents = discordEvents.filter(
-			event => event.name === 'Project NexTech Info Session'
+			event => event.name === 'Project NexTech Info Session',
 		);
 
 		// Process calendar events
@@ -249,13 +258,15 @@ async function syncCalendarEvents(client) {
 				const discordEvent = managedDiscordEvents.get(discordEventId);
 				if (discordEvent) {
 					await updateDiscordEvent(guild, discordEventId, calendarEvent);
-				} else {
+				}
+				else {
 					// Discord event was deleted manually or doesn't exist, recreate it
 					eventMapping.delete(calendarEvent.uid);
 					saveEventMapping(); // Persist the deletion
 					await createDiscordEvent(guild, calendarEvent);
 				}
-			} else {
+			}
+			else {
 				// New event, create it
 				await createDiscordEvent(guild, calendarEvent);
 			}
@@ -291,8 +302,9 @@ async function syncCalendarEvents(client) {
 			}
 		}
 
-		if(eventMapping.size > 0) { console.log(`[CalendarSync] Sync completed. Tracking ${eventMapping.size} event(s)`); }
-	} catch (error) {
+		if (eventMapping.size > 0) { console.log(`[CalendarSync] Sync completed. Tracking ${eventMapping.size} event(s)`); }
+	}
+	catch (error) {
 		console.error('[CalendarSync] Error during sync:', error);
 	}
 }

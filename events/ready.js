@@ -43,7 +43,8 @@ module.exports = {
 				if (memberCache.isInitialLoad) {
 					memberCache.isInitialLoad = false;
 				}
-			} catch (error) {
+			}
+			catch (error) {
 				console.error('⚠️ Failed to fetch guild members:', error.message);
 			}
 		};
@@ -96,7 +97,8 @@ module.exports = {
 			catch (error) {
 				console.error('❌ Failed to start left users checker:', error.message);
 			}
-		} else {
+		}
+		else {
 			console.log('ℹ️ Left users checker is disabled (CHECK_LEFT_USERS_ENABLED=false)');
 		}
 	},

@@ -51,7 +51,7 @@ async function performRoleSync(guild) {
 					guildMember = await guild.members.fetch(data.discordId);
 				}
 			}
-			catch (fetchError) {
+			catch {
 				// User not in server
 				skipped++;
 				continue;
@@ -78,10 +78,12 @@ async function performRoleSync(guild) {
 				unenrolled++;
 				if (hadEnrolled) {
 					enrolledToUnenrolled++;
-				} else if (!hadUnenrolled) {
+				}
+				else if (!hadUnenrolled) {
 					newlyAssigned++;
 				}
-			} else if (normalizedStatus === 'Paused' || normalizedStatus === 'Member' || normalizedStatus === 'New Member') {
+			}
+			else if (normalizedStatus === 'Paused' || normalizedStatus === 'Member' || normalizedStatus === 'New Member') {
 				// Remove NT Unenrolled, Add NT Enrolled
 				if (hadUnenrolled) await guildMember.roles.remove(ntUnenrolledRole);
 				if (!hadEnrolled) await guildMember.roles.add(ntEnrolledRole);
@@ -89,10 +91,12 @@ async function performRoleSync(guild) {
 				enrolled++;
 				if (hadUnenrolled) {
 					unenrolledToEnrolled++;
-				} else if (!hadEnrolled) {
+				}
+				else if (!hadEnrolled) {
 					newlyAssigned++;
 				}
-			} else {
+			}
+			else {
 				// Unknown status
 				skipped++;
 			}

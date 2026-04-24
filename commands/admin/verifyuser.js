@@ -1,5 +1,5 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const sheetsManager = require('../../utils/sheets');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+// const sheetsManager = require('../../utils/sheets');
 const { hasRequiredRole } = require('../../utils/helpers');
 
 module.exports = {
@@ -277,7 +277,7 @@ module.exports = {
 						interaction.editReply({
 							content: `⏱️ **Verification Timed Out**\n\nThe single-name confirmation for ${targetUser} has expired. Please run the command again.`,
 							components: [],
-						}).catch(() => {});
+						}).catch(() => null);
 					}
 				}, 2 * 60 * 1000); // 2 minutes
 
@@ -339,11 +339,11 @@ module.exports = {
 					const membersToCheck = interaction.guild.members.cache;
 					
 					// Find ALL members with the same first name (ignore the [ɴᴛ] prefix)
-					const membersWithSameFirstName = membersToCheck.filter(member => {
-						if (member.id === targetMember.id) return false;
+					const membersWithSameFirstName = membersToCheck.filter(m => {
+						if (m.id === targetMember.id) return false;
 						if (!member.roles.cache.has(ntMemberRoleCheck.id)) return false;
 						
-						const nick = member.nickname || member.user.username;
+						const nick = m.nickname || guildMemberTarget.user.username;
 						// Remove [ɴᴛ] prefix if it exists
 						const cleanNick = nick.replace(/^\[ɴᴛ\]\s*/i, '');
 						const nickFirstName = cleanNick.trim().split(/\s+/)[0];
@@ -356,8 +356,8 @@ module.exports = {
 						// Store info about all conflicting members
 						const conflictInfo = [];
 						
-						for (const [, member] of membersWithSameFirstName) {
-							const memberNick = member.nickname || member.user.username;
+						for (const [, m] of membersWithSameFirstName) {
+							const memberNick = m.nickname || guildMemberTarget.user.username;
 							const cleanMemberNick = memberNick.replace(/^\[ɴᴛ\]\s*/i, '');
 							const hasLastInitialInNick = /^[A-Za-z]+\s+[A-Z]\.$/.test(cleanMemberNick.trim());
 							
@@ -370,7 +370,8 @@ module.exports = {
 									const memberLastName = memberNameParts.length > 1 ? memberNameParts[memberNameParts.length - 1] : '';
 									memberLastInitial = memberLastName ? memberLastName.charAt(0).toUpperCase() : null;
 								}
-							} catch (sheetError) {
+							}
+							catch (sheetError) {
 								console.error('Failed to get member data from sheet:', sheetError);
 							}
 							
@@ -385,7 +386,7 @@ module.exports = {
 								}
 							}
 							
-							console.log(`[Nickname Conflict Debug] Member: ${member.user.tag}, last initial: ${memberLastInitial}, hasLastInitialInNick: ${hasLastInitialInNick}`);
+							console.log(`[Nickname Conflict Debug] Member: ${guildMemberTarget.user.tag}, last initial: ${memberLastInitial}, hasLastInitialInNick: ${hasLastInitialInNick}`);
 							
 							conflictInfo.push({
 								member,
@@ -397,7 +398,7 @@ module.exports = {
 						
 						// Check if ANY member has the same last initial
 						const memberWithSameLastInitial = conflictInfo.find(info => 
-							info.lastInitial && info.lastInitial === lastInitial
+							info.lastInitial && info.lastInitial === lastInitial,
 						);
 						
 						// Check if any member has UNKNOWN last initial (not in sheet or nickname)
@@ -407,21 +408,23 @@ module.exports = {
 						
 						if (memberWithSameLastInitial) {
 							// SAME last initial - trigger manual modal
-							console.log(`[Nickname Conflict Debug] SAME last initial detected with ${memberWithSameLastInitial.member.user.tag} - triggering modal`);
+							console.log(`[Nickname Conflict Debug] SAME last initial detected with ${memberWithSameLastInitial.guildMemberTarget.user.tag} - triggering modal`);
 							conflictingMember = memberWithSameLastInitial.member;
 							// Store the conflict info for use below
 							conflictingMember._conflictInfo = memberWithSameLastInitial;
 							conflictingMember._triggerModal = true;
 							conflictingMember._conflictReason = 'same_initial';
-						} else if (memberWithUnknownLastInitial) {
+						}
+						else if (memberWithUnknownLastInitial) {
 							// Existing member's last name is UNKNOWN - trigger manual modal
-							console.log(`[Nickname Conflict Debug] Existing member ${memberWithUnknownLastInitial.member.user.tag} has unknown last name - triggering modal`);
+							console.log(`[Nickname Conflict Debug] Existing member ${memberWithUnknownLastInitial.guildMemberTarget.user.tag} has unknown last name - triggering modal`);
 							conflictingMember = memberWithUnknownLastInitial.member;
 							// Store the conflict info for use below
 							conflictingMember._conflictInfo = memberWithUnknownLastInitial;
 							conflictingMember._triggerModal = true;
 							conflictingMember._conflictReason = 'unknown_last_name';
-						} else {
+						}
+						else {
 							// DIFFERENT last initials - auto-resolve (pick first member for updating)
 							console.log(`[Nickname Conflict Debug] DIFFERENT last initials - auto-resolving`);
 							conflictingMember = conflictInfo[0].member;
@@ -493,7 +496,7 @@ module.exports = {
 
 						interaction.client.verificationPending.get(targetUser.id).timeoutId = timeoutId;
 
-						const { ButtonBuilder, ButtonStyle } = require('discord.js');
+						// const { ButtonBuilder, ButtonStyle } = require('discord.js');
 						const resolveButton = new ButtonBuilder()
 							.setCustomId(`resolve_nickname_conflict_${targetUser.id}`)
 							.setLabel('Resolve Nickname Conflict')
@@ -514,13 +517,15 @@ module.exports = {
 								`Current nickname: \`${conflictingNick}\`\n\n` +
 								`**Both users' nicknames need to be updated manually** because they share the same first name and last initial.\n\n` +
 								`**Action Required:** Click "Resolve Nickname Conflict" to specify what both users' nicknames should be (without [ɴᴛ] prefix), or "Cancel Verification" to abort.`;
-						} else if (conflictReason === 'unknown_last_name') {
+						}
+						else if (conflictReason === 'unknown_last_name') {
 							conflictMessage = `⚠️ **Nickname Conflict - Manual Resolution Required**\n\n` +
 								`${targetUser} cannot be automatically verified because a member with the first name "${firstName}" already exists: ${conflictingMember}\n` +
 								`Current nickname: \`${conflictingNick}\`\n\n` +
 								`**The existing member's last name is unknown** (not found in the verification sheet or nickname), so both users' nicknames need to be updated manually.\n\n` +
 								`**Action Required:** Click "Resolve Nickname Conflict" to enter the last names for both users (the new member's last name will be auto-filled), or "Cancel Verification" to abort.`;
-						} else {
+						}
+						else {
 							conflictMessage = `⚠️ **Nickname Conflict - Manual Resolution Required**\n\n` +
 								`${targetUser} cannot be automatically verified because a member with the first name "${firstName}" already exists: ${conflictingMember}\n` +
 								`Current nickname: \`${conflictingNick}\`\n\n` +
@@ -535,7 +540,8 @@ module.exports = {
 
 						// STOP EXECUTION - wait for modal
 						return;
-					} else if (hasLastInitialInNick || conflictingLastInitial) {
+					}
+					else if (hasLastInitialInNick || conflictingLastInitial) {
 						// Existing member has a last initial but DIFFERENT from new user - auto-resolve with both having initials
 						console.log('[Nickname Conflict Debug] Auto-resolving - different last initials or existing member has distinguishable nickname');
 						newUserNickname = `[ɴᴛ] ${firstName} ${lastInitial}.`;
@@ -552,7 +558,8 @@ module.exports = {
 								`• ${conflictingMember}: \`${conflictingMemberNewNickname}\``;
 							
 							warningMessage += conflictResolutionMsg;
-						} else {
+						}
+						else {
 							// They already have a last initial (from a previous conflict), don't change it
 							const conflictResolutionMsg = `\n\n**✅ Nickname Conflict Auto-Resolved:**\n` +
 								`• ${targetUser}: \`${newUserNickname}\`\n` +
@@ -561,7 +568,8 @@ module.exports = {
 							warningMessage += conflictResolutionMsg;
 						}
 					}
-				} else if (!customNickname) {
+				}
+				else if (!customNickname) {
 					// No conflict, set normal nickname
 					newUserNickname = `[ɴᴛ] ${firstName}`;
 				}
@@ -627,7 +635,8 @@ module.exports = {
 				if (countryRole) {
 					await targetMember.roles.add(countryRole);
 				}
-			} catch (roleError) {
+			}
+			catch (roleError) {
 				console.error('Failed to assign roles:', roleError);
 				console.error(roleError.stack);
 				return interaction.editReply({
@@ -688,13 +697,16 @@ module.exports = {
 					const staffChatChannel = await interaction.client.channels.fetch(staffChatChannelId);
 					if (staffChatChannel) {
 						await staffChatChannel.send({ embeds: [embed] });
-					} else {
+					}
+					else {
 						console.error('Staff chat channel not found');
 					}
-				} catch (channelError) {
+				}
+				catch (channelError) {
 					console.error('Could not send verification embed to staff chat:', channelError);
 				}
-			} else {
+			}
+			else {
 				console.error('STAFF_CHAT_CHANNEL_ID not set in environment variables');
 			}
 
@@ -709,7 +721,8 @@ module.exports = {
 					const originalInteraction = pendingData.interaction;
 					await originalInteraction.deleteReply();
 					console.log('Deleted ephemeral nickname conflict message');
-				} catch (deleteError) {
+				}
+				catch (deleteError) {
 					console.error('Could not delete ephemeral conflict message:', deleteError);
 					// Non-critical, continue with verification
 				}
@@ -734,13 +747,16 @@ module.exports = {
 					if (ntChatChannel) {
 						const welcomeChannelMessage = `Welcome to Project NexTech, ${targetUser}! Please check <#1231776603126890671> for updates every few days and get your roles in <#1231777272906649670>. You can select any departments/subjects you are interested in. <#1386576733674668052> has useful information to get started. New members should go to one of our online info sessions. We will announce in <#1231776603126890671> when we will have one.`;
 						await ntChatChannel.send(welcomeChannelMessage);
-					} else {
+					}
+					else {
 						console.error('NT_CHAT_CHANNEL_ID channel not found');
 					}
-				} else {
+				}
+				else {
 					console.error('NT_CHAT_CHANNEL_ID not set in environment variables');
 				}
-			} catch (channelError) {
+			}
+			catch (channelError) {
 				console.error('Could not send welcome message to NT chat channel:', channelError);
 				// Don't fail the verification if channel message fails
 			}
@@ -788,8 +804,6 @@ module.exports = {
 			// Parse the user's name (now includes "???" for unknown last names)
 			const nameParts = userData.name.trim().split(/\s+/);
 			const firstName = nameParts[0];
-			const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : '';
-			const lastInitial = lastName && lastName !== '???' ? lastName.charAt(0).toUpperCase() : '';
 
 			const customNickname = userData.customNickname || null;
 
@@ -803,11 +817,11 @@ module.exports = {
 			if (!customNickname && ntMemberRoleCheck) {
 				const membersToCheck = interaction.guild.members.cache;
 
-				const membersWithSameFirstName = membersToCheck.filter(member => {
-					if (member.id === targetMember.id) return false;
+				const membersWithSameFirstName = membersToCheck.filter(m => {
+					if (m.id === targetMember.id) return false;
 					if (!member.roles.cache.has(ntMemberRoleCheck.id)) return false;
 
-					const nick = member.nickname || member.user.username;
+					const nick = m.nickname || guildMemberTarget.user.username;
 					const cleanNick = nick.replace(/^\[ɴᴛ\]\s*/i, '');
 					const nickFirstName = cleanNick.trim().split(/\s+/)[0];
 					return nickFirstName.toLowerCase() === firstName.toLowerCase();
@@ -816,10 +830,10 @@ module.exports = {
 				if (membersWithSameFirstName.size > 0) {
 					// There's a conflict but the new user has "???" as last name
 					// This means we can't auto-resolve, need manual intervention
-					const sheetsManager = require('../../utils/sheets');
+					// const sheetsManager = require('../../utils/sheets');
 					
-					for (const [, member] of membersWithSameFirstName) {
-						const memberNick = member.nickname || member.user.username;
+					for (const [, m] of membersWithSameFirstName) {
+						const memberNick = m.nickname || guildMemberTarget.user.username;
 						const cleanMemberNick = memberNick.replace(/^\[ɴᴛ\]\s*/i, '');
 						const hasLastInitialInNick = /^[A-Za-z]+\s+[A-Z]\.$/.test(cleanMemberNick.trim());
 
@@ -831,7 +845,8 @@ module.exports = {
 								const memberLastName = memberNameParts.length > 1 ? memberNameParts[memberNameParts.length - 1] : '';
 								memberLastInitial = memberLastName ? memberLastName.charAt(0).toUpperCase() : null;
 							}
-						} catch (sheetError) {
+						}
+						catch (sheetError) {
 							console.error('Failed to get member data from sheet:', sheetError);
 						}
 
@@ -893,13 +908,13 @@ module.exports = {
 						buttonInteraction.editReply({
 							content: `⏱️ **Verification Timed Out**\n\nThe nickname conflict resolution for ${targetUser} has expired. Please run the command again.`,
 							components: [],
-						}).catch(() => {});
+						}).catch(() => null);
 					}
 				}, 5 * 60 * 1000);
 
 				buttonInteraction.client.verificationPending.get(targetUser.id).timeoutId = timeoutId;
 
-				const { ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
+				// const { ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 				const resolveButton = new ButtonBuilder()
 					.setCustomId(`resolve_nickname_conflict_${targetUser.id}`)
 					.setLabel('Resolve Nickname Conflict')
@@ -930,9 +945,11 @@ module.exports = {
 			// Set nickname for new user
 			if (customNickname) {
 				newUserNickname = `[ɴᴛ] ${customNickname}`;
-			} else if (!conflictingMember) {
+			}
+			else if (!conflictingMember) {
 				newUserNickname = `[ɴᴛ] ${firstName}`;
-			} else {
+			}
+			else {
 				// Auto-resolve: add last initial to both
 				const conflictInfo = conflictingMember._conflictInfo;
 				const existingMemberLastInitial = conflictInfo.lastInitial;
@@ -955,7 +972,8 @@ module.exports = {
 
 			if (userData.hasIRLConnection && serverMemberRole) {
 				rolesToAdd.push(serverMemberRole);
-			} else if (!userData.hasIRLConnection && onlineMemberRole) {
+			}
+			else if (!userData.hasIRLConnection && onlineMemberRole) {
 				rolesToAdd.push(onlineMemberRole);
 			}
 
@@ -977,7 +995,8 @@ module.exports = {
 			if (newUserNickname) {
 				try {
 					await targetMember.setNickname(newUserNickname);
-				} catch (nickError) {
+				}
+				catch (nickError) {
 					console.error('Failed to set nickname:', nickError);
 				}
 			}
@@ -986,7 +1005,8 @@ module.exports = {
 			if (conflictingMemberToUpdate && conflictingMemberNewNickname) {
 				try {
 					await conflictingMemberToUpdate.setNickname(conflictingMemberNewNickname);
-				} catch (nickError) {
+				}
+				catch (nickError) {
 					console.error('Failed to update conflicting member nickname:', nickError);
 				}
 			}
@@ -1006,7 +1026,7 @@ module.exports = {
 			// ============================================
 			// STEP 4: Send notifications
 			// ============================================
-			const { EmbedBuilder } = require('discord.js');
+			// const { EmbedBuilder } = require('discord.js');
 			const embed = new EmbedBuilder()
 				.setColor(0x57F287)
 				.setTitle('✅ User Verified Successfully')
@@ -1036,7 +1056,8 @@ module.exports = {
 					if (staffChatChannel) {
 						await staffChatChannel.send({ embeds: [embed] });
 					}
-				} catch (channelError) {
+				}
+				catch (channelError) {
 					console.error('Could not send verification embed to staff chat:', channelError);
 				}
 			}
@@ -1064,11 +1085,13 @@ module.exports = {
 						await ntChatChannel.send(welcomeChannelMessage);
 					}
 				}
-			} catch (channelError) {
+			}
+			catch (channelError) {
 				console.error('Could not send welcome message to NT chat channel:', channelError);
 			}
 
-		} catch (error) {
+		}
+		catch (error) {
 			console.error('Error in continueVerification:', error);
 			await buttonInteraction.editReply({
 				content: '❌ An error occurred while verifying the user. Please try again later.',

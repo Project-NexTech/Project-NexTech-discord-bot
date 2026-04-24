@@ -35,7 +35,8 @@ class SheetsManager {
 	async safeApiCall(apiCall, operationName = 'API call') {
 		try {
 			return await apiCall();
-		} catch (error) {
+		}
+		catch (error) {
 			console.error(`❌ Google Sheets API Error during ${operationName}:`);
 			
 			// Log error details
@@ -78,7 +79,7 @@ class SheetsManager {
 				spreadsheetId: privateSheetId,
 				range: '\'Limited Data\'!A:E',
 			}),
-			'getVolunteerHours (fetch private data)'
+			'getVolunteerHours (fetch private data)',
 		);
 
 		if (!privateResponse || !privateResponse.data || !privateResponse.data.values) {
@@ -112,7 +113,7 @@ class SheetsManager {
 				spreadsheetId: publicSheetId,
 				range: '\'Tracker\'!A:K',
 			}),
-			'getVolunteerHours (fetch hours data)'
+			'getVolunteerHours (fetch hours data)',
 		);
 
 		if (!hoursResponse || !hoursResponse.data) {
@@ -161,7 +162,7 @@ class SheetsManager {
 				spreadsheetId: privateSheetId,
 				range: '\'Limited Data\'!A:E',
 			}),
-			'getHourVerificationRequests (fetch user name)'
+			'getHourVerificationRequests (fetch user name)',
 		);
 
 		if (!privateResponse || !privateResponse.data || !privateResponse.data.values) {
@@ -185,7 +186,7 @@ class SheetsManager {
 				spreadsheetId: eventsSheetId,
 				range: '\'Hour Verification\'!A:I',
 			}),
-			'getHourVerificationRequests (fetch verification data)'
+			'getHourVerificationRequests (fetch verification data)',
 		);
 
 		if (!response || !response.data || !response.data.values) {
@@ -245,7 +246,7 @@ class SheetsManager {
 				spreadsheetId,
 				range: '\'Signup Sheet\'!A1:ZZ11',
 			}),
-			'getUpcomingEvents'
+			'getUpcomingEvents',
 		);
 
 		if (!response || !response.data) {
@@ -366,7 +367,7 @@ class SheetsManager {
 				spreadsheetId,
 				range: 'Sheet1!A:F', // Adjust sheet name if needed
 			}),
-			'getContacts'
+			'getContacts',
 		);
 
 		if (!response || !response.data) {
@@ -411,7 +412,7 @@ class SheetsManager {
 					values: [[timestamp, discordUserId, username, details]],
 				},
 			}),
-			'logHoursRequest'
+			'logHoursRequest',
 		);
 
 		if (!response) {
@@ -452,7 +453,7 @@ class SheetsManager {
 				insertDataOption: 'INSERT_ROWS', // Explicitly insert new rows
 				resource: { values },
 			}),
-			'verifyUser (append to sheet)'
+			'verifyUser (append to sheet)',
 		);
 
 		if (!response) {
@@ -496,7 +497,7 @@ class SheetsManager {
 								}],
 							},
 						}),
-						'verifyUser (set custom nickname note)'
+						'verifyUser (set custom nickname note)',
 					);
 				}
 			}
@@ -521,7 +522,7 @@ class SheetsManager {
 				spreadsheetId,
 				range: "'#nextech-verify'!A:J",
 			}),
-			'getVerificationData'
+			'getVerificationData',
 		);
 
 		if (!response || !response.data || !response.data.values) {
@@ -567,7 +568,7 @@ class SheetsManager {
 				spreadsheetId: publicSheetId,
 				range: '\'Tracker\'!A:K',
 			}),
-			'getHoursLeaderboard'
+			'getHoursLeaderboard',
 		);
 
 		if (!response || !response.data) {
@@ -606,7 +607,7 @@ class SheetsManager {
 				spreadsheetId: eventsSheetId,
 				range: '\'Membership Status\'!A10:B',
 			}),
-			'getMembershipStatus (fetch membership data)'
+			'getMembershipStatus (fetch membership data)',
 		);
 
 		if (!membershipResponse || !membershipResponse.data) {
@@ -622,7 +623,7 @@ class SheetsManager {
 				spreadsheetId: volunteersSheetId,
 				range: '\'Limited Data\'!A:E',
 			}),
-			'getMembershipStatus (fetch volunteer IDs)'
+			'getMembershipStatus (fetch volunteer IDs)',
 		);
 
 		if (!volunteersResponse || !volunteersResponse.data) {
@@ -637,7 +638,7 @@ class SheetsManager {
 		const nameToDiscordId = {};
 		const normalizedToOriginal = {}; // Track original names for debugging
 		
-		volunteersRows.slice(1).forEach((row, index) => {
+		volunteersRows.slice(1).forEach((row) => {
 			const name = row[0];
 			const discordId = row[4];
 			
@@ -754,7 +755,7 @@ class SheetsManager {
 				spreadsheetId,
 				range: `${sheetName}!A:J`,
 			}),
-			'checkLeftUsers (fetch sheet data)'
+			'checkLeftUsers (fetch sheet data)',
 		);
 
 		if (!response || !response.data || !response.data.values) {
@@ -775,7 +776,7 @@ class SheetsManager {
 				ranges: [`${sheetName}!A:J`],
 				includeGridData: true,
 			}),
-			'checkLeftUsers (fetch formatting data)'
+			'checkLeftUsers (fetch formatting data)',
 		);
 
 		if (!sheetData || !sheetData.data || !sheetData.data.sheets) {
@@ -791,7 +792,8 @@ class SheetsManager {
 		// Use existing cache if it's already populated from the ready event
 		if (guild.members.cache.size > 0) {
 			console.log(`[CheckLeftUsers] Using cached members (${guild.members.cache.size} in cache)`);
-		} else {
+		}
+		else {
 			console.log('[CheckLeftUsers] Cache is empty - cannot verify members. Aborting to prevent false positives.');
 			return { checked: 0, marked: 0, skipped: 0 };
 		}
@@ -816,7 +818,8 @@ class SheetsManager {
 			if (!member) {
 				try {
 					member = await guild.members.fetch(discordId);
-				} catch {
+				}
+				catch {
 					// fetch throws if member is not in the guild — member stays null
 				}
 			}
@@ -870,7 +873,8 @@ class SheetsManager {
 				
 				markedCount++;
 				console.log(`[CheckLeftUsers] Marked row ${rowNumber} - User ${discordId} left the server`);
-			} else if (isMarkedRed) {
+			}
+			else if (isMarkedRed) {
 				// User IS in the server but row is red — unmark it
 				const rowNumber = i + 1;
 				
@@ -910,7 +914,7 @@ class SheetsManager {
 						requests: batchUpdates,
 					},
 				}),
-				'checkLeftUsers (apply formatting updates)'
+				'checkLeftUsers (apply formatting updates)',
 			);
 
 			if (!batchResult) {
@@ -934,7 +938,7 @@ class SheetsManager {
 			() => this.sheets.spreadsheets.get({
 				spreadsheetId,
 			}),
-			`getSheetId (sheet: "${sheetName}")`
+			`getSheetId (sheet: "${sheetName}")`,
 		);
 
 		if (!response || !response.data || !response.data.sheets) {

@@ -51,7 +51,8 @@ async function gracefulExit(fromStopCommand = false) {
 		else {
 			console.log('[Shutdown] Graceful shutdown complete. It is safe to stop the server now.');
 		}
-	} catch (error) {
+	}
+	catch (error) {
 		console.error('[Shutdown] Error during graceful shutdown:', error);
 		process.exit(1);
 	}
@@ -65,7 +66,7 @@ const readline = require('readline');
 const rl = readline.createInterface({
 	input: process.stdin,
 	output: process.stdout,
-	terminal: false
+	terminal: false,
 });
 
 rl.on('line', (input) => {
@@ -73,7 +74,8 @@ rl.on('line', (input) => {
 	if (command === 'stop') {
 		console.log('Received "stop" command');
 		gracefulExit(true);
-	} else if (command) {
+	}
+	else if (command) {
 		console.log('Invalid command');
 	}
 });
@@ -125,7 +127,8 @@ process.on('uncaughtException', (error) => {
 	try {
 		console.log('💾 Saving member cache before exit...');
 		memberCache.save();
-	} catch (saveError) {
+	}
+	catch (saveError) {
 		console.error('Failed to save cache:', saveError.message);
 	}
 	// For uncaught exceptions, we should exit gracefully
@@ -156,7 +159,8 @@ function sendHealthCheckPing() {
 		res.resume(); // Consume response data to free up memory
 		if (res.statusCode === 200) {
 			console.log('✅ Health check ping sent successfully');
-		} else {
+		}
+		else {
 			console.log(`⚠️ Health check ping responded with status: ${res.statusCode}`);
 		}
 	}).on('error', (error) => {
@@ -170,24 +174,25 @@ client.once('clientReady', () => {
 		sendHealthCheckPing();
 		// Set up interval for subsequent pings
 		setInterval(sendHealthCheckPing, HEALTH_CHECK_INTERVAL);
-	} else {
+	}
+	else {
 		console.log('⏸️ Health check pings are currently paused.');
 	}
 });
 
 const { setupMemberEndpoint } = require('./utils/memberEndpoint');
 client.once('clientReady', () => {
-  setupMemberEndpoint(client);
+	setupMemberEndpoint(client);
 });
 
 // Windows-specific workaround for SIGINT (Ctrl+C) handling
 if (process.platform === "win32") {
-	const rl = require("readline").createInterface({
+	const rlWin = require("readline").createInterface({
 		input: process.stdin,
 		output: process.stdout,
 	});
 
-	rl.on("SIGINT", function () {
+	rlWin.on("SIGINT", function() {
 		process.emit("SIGINT");
 	});
 }

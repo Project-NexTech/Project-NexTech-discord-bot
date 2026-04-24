@@ -24,7 +24,8 @@ class MemberCache {
 				console.log(`📂 Loaded ${this.cache.size} members from cache (last update: ${this.lastUpdate?.toLocaleString() || 'unknown'})`);
 				return true;
 			}
-		} catch (error) {
+		}
+		catch (error) {
 			console.error('⚠️ Failed to load member cache:', error.message);
 		}
 		return false;
@@ -54,7 +55,8 @@ class MemberCache {
 			}
 			
 			return true;
-		} catch (error) {
+		}
+		catch (error) {
 			console.error('⚠️ Failed to save member cache:', error.message);
 			return false;
 		}
@@ -114,7 +116,7 @@ class MemberCache {
 	 */
 	getMembersWithRole(roleId) {
 		const result = [];
-		for (const [id, member] of this.cache) {
+		for (const [, member] of this.cache) {
 			if (member.roles.includes(roleId)) {
 				result.push(member);
 			}

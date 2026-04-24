@@ -68,7 +68,8 @@ module.exports = {
 								value: `**Status:** ${req.verdict}\n*This request was denied and hours were not given.*`,
 								inline: false,
 							});
-						} else {
+						}
+						else {
 							// Format the request details
 							const hoursValue = req.hours !== 'N/A' ? `**${req.hours} hours**` : 'Not specified';
 							const statusEmoji = req.verdict.toLowerCase() === 'approved' ? '✅' : 
@@ -94,7 +95,8 @@ module.exports = {
 								inline: false,
 							});
 						}
-					} else {
+					}
+					else {
 						// No request available for this position
 						embed.addFields({
 							name: `${i + 1}. No request`,
@@ -107,7 +109,7 @@ module.exports = {
 				// Add total count if user has more requests than shown
 				if (requests.length > requestsLimit) {
 					embed.setDescription(
-						`Showing the ${requestsLimit} most recent request(s) out of ${requests.length} total`
+						`Showing the ${requestsLimit} most recent request(s) out of ${requests.length} total`,
 					);
 				}
 
