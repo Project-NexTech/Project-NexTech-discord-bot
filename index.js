@@ -175,6 +175,11 @@ client.once('clientReady', () => {
 	}
 });
 
+const { setupMemberEndpoint } = require('./utils/memberEndpoint');
+client.once('clientReady', () => {
+  setupMemberEndpoint(client);
+});
+
 // Windows-specific workaround for SIGINT (Ctrl+C) handling
 if (process.platform === "win32") {
 	const rl = require("readline").createInterface({
