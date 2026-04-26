@@ -116,7 +116,7 @@ Synchronize NT Enrolled/Unenrolled roles based on membership status from Google 
 - Fetches membership status from Google Sheets
 - Assigns "NT Enrolled" role to active members (Member, New Member, Paused)
 - Assigns "NT Unenrolled" role to inactive members (Not a Member)
-- Skips users with "NT Board Member" role
+- Skips users with "NT Board of Advisors" role
 - Provides detailed statistics of role changes
 
 ---
@@ -477,7 +477,7 @@ The bot expects the following role names (case-insensitive):
 - `NT Member`
 - `NT Enrolled`
 - `NT Unenrolled`
-- `NT Board Member`
+- `NT Board of Advisors`
 - `NT Unverified` or `NexTech Unverified`
 - `Combined Unverified`
 - `Server Member`

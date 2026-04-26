@@ -11,7 +11,7 @@ async function performRoleSync(guild) {
 		role.name.toLowerCase().includes('nt unenrolled'),
 	);
 	const ntBoardMemberRole = guild.roles.cache.find(role =>
-		role.name.toLowerCase().includes('nt board member'),
+		role.name.toLowerCase().includes('NT Board of Advisors'),
 	);
 
 	if (!ntEnrolledRole || !ntUnenrolledRole) {
@@ -57,7 +57,7 @@ async function performRoleSync(guild) {
 				continue;
 			}
 
-			// Skip if user has NT Board Member role
+			// Skip if user has NT Board of Advisors role
 			if (ntBoardMemberRole && guildMember.roles.cache.has(ntBoardMemberRole.id)) {
 				skipped++;
 				continue;
