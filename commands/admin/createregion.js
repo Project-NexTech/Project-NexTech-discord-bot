@@ -247,7 +247,7 @@ module.exports = {
 								addedCount++;
 								console.log(`[CreateRegion] Added roles to ${guildMember.user.tag}`);
 							}
-							catch {
+							catch (error) {
 								console.error(`[CreateRegion] Failed to add roles to ${memberId}:`, error.message);
 								failedMembers.push(memberId);
 							}
@@ -287,7 +287,7 @@ module.exports = {
 					collector.stop();
 
 				}
-				catch {
+				catch (error) {
 					console.error('[CreateRegion] Error in button handler:', error);
 					await buttonInteraction.update({
 						content: `❌ An error occurred while creating roles: ${error.message}`,
@@ -307,14 +307,14 @@ module.exports = {
 							components: [],
 						});
 					}
-					catch {
+					catch (error) {
 						console.error('[CreateRegion] Error updating timeout message:', error);
 					}
 				}
 			});
 
 		}
-		catch {
+		catch (error) {
 			console.error('[CreateRegion] Error:', error);
 			const errorMessage = `❌ An error occurred: ${error.message}`;
 			
@@ -478,7 +478,7 @@ async function positionRoles(guild, countryRole, regionRole) {
 		}
 
 	}
-	catch {
+	catch (error) {
 		console.error('[CreateRegion] Error positioning roles:', error);
 		// Don't throw - role creation was successful, positioning is best-effort
 	}

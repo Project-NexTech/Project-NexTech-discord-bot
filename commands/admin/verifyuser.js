@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-// const sheetsManager = require('../../utils/sheets');
+const sheetsManager = require('../../utils/sheets');
 const { hasRequiredRole } = require('../../utils/helpers');
 
 module.exports = {
@@ -341,9 +341,9 @@ module.exports = {
 					// Find ALL members with the same first name (ignore the [ɴᴛ] prefix)
 					const membersWithSameFirstName = membersToCheck.filter(m => {
 						if (m.id === targetMember.id) return false;
-						if (!member.roles.cache.has(ntMemberRoleCheck.id)) return false;
-						
-						const nick = m.nickname || guildMemberTarget.user.username;
+						if (!m.roles.cache.has(ntMemberRoleCheck.id)) return false;
+
+						const nick = m.nickname || m.user.username;
 						// Remove [ɴᴛ] prefix if it exists
 						const cleanNick = nick.replace(/^\[ɴᴛ\]\s*/i, '');
 						const nickFirstName = cleanNick.trim().split(/\s+/)[0];
@@ -357,14 +357,14 @@ module.exports = {
 						const conflictInfo = [];
 						
 						for (const [, m] of membersWithSameFirstName) {
-							const memberNick = m.nickname || guildMemberTarget.user.username;
+							const memberNick = m.nickname || m.user.username;
 							const cleanMemberNick = memberNick.replace(/^\[ɴᴛ\]\s*/i, '');
 							const hasLastInitialInNick = /^[A-Za-z]+\s+[A-Z]\.$/.test(cleanMemberNick.trim());
-							
+
 							// Get member's last initial from sheet or nickname
 							let memberLastInitial = null;
 							try {
-								const sheetData = await sheetsManager.getVerificationData(member.id);
+								const sheetData = await sheetsManager.getVerificationData(m.id);
 								if (sheetData && sheetData.name) {
 									const memberNameParts = sheetData.name.trim().split(/\s+/);
 									const memberLastName = memberNameParts.length > 1 ? memberNameParts[memberNameParts.length - 1] : '';
@@ -386,10 +386,10 @@ module.exports = {
 								}
 							}
 							
-							console.log(`[Nickname Conflict Debug] Member: ${guildMemberTarget.user.tag}, last initial: ${memberLastInitial}, hasLastInitialInNick: ${hasLastInitialInNick}`);
-							
+							console.log(`[Nickname Conflict Debug] Member: ${m.user.tag}, last initial: ${memberLastInitial}, hasLastInitialInNick: ${hasLastInitialInNick}`);
+
 							conflictInfo.push({
-								member,
+								member: m,
 								lastInitial: memberLastInitial,
 								hasLastInitialInNick,
 								nickname: memberNick,
@@ -408,7 +408,7 @@ module.exports = {
 						
 						if (memberWithSameLastInitial) {
 							// SAME last initial - trigger manual modal
-							console.log(`[Nickname Conflict Debug] SAME last initial detected with ${memberWithSameLastInitial.guildMemberTarget.user.tag} - triggering modal`);
+							console.log(`[Nickname Conflict Debug] SAME last initial detected with ${memberWithSameLastInitial.member.user.tag} - triggering modal`);
 							conflictingMember = memberWithSameLastInitial.member;
 							// Store the conflict info for use below
 							conflictingMember._conflictInfo = memberWithSameLastInitial;
@@ -417,7 +417,7 @@ module.exports = {
 						}
 						else if (memberWithUnknownLastInitial) {
 							// Existing member's last name is UNKNOWN - trigger manual modal
-							console.log(`[Nickname Conflict Debug] Existing member ${memberWithUnknownLastInitial.guildMemberTarget.user.tag} has unknown last name - triggering modal`);
+							console.log(`[Nickname Conflict Debug] Existing member ${memberWithUnknownLastInitial.member.user.tag} has unknown last name - triggering modal`);
 							conflictingMember = memberWithUnknownLastInitial.member;
 							// Store the conflict info for use below
 							conflictingMember._conflictInfo = memberWithUnknownLastInitial;
@@ -819,9 +819,9 @@ module.exports = {
 
 				const membersWithSameFirstName = membersToCheck.filter(m => {
 					if (m.id === targetMember.id) return false;
-					if (!member.roles.cache.has(ntMemberRoleCheck.id)) return false;
+					if (!m.roles.cache.has(ntMemberRoleCheck.id)) return false;
 
-					const nick = m.nickname || guildMemberTarget.user.username;
+					const nick = m.nickname || m.user.username;
 					const cleanNick = nick.replace(/^\[ɴᴛ\]\s*/i, '');
 					const nickFirstName = cleanNick.trim().split(/\s+/)[0];
 					return nickFirstName.toLowerCase() === firstName.toLowerCase();
@@ -830,16 +830,14 @@ module.exports = {
 				if (membersWithSameFirstName.size > 0) {
 					// There's a conflict but the new user has "???" as last name
 					// This means we can't auto-resolve, need manual intervention
-					// const sheetsManager = require('../../utils/sheets');
-					
 					for (const [, m] of membersWithSameFirstName) {
-						const memberNick = m.nickname || guildMemberTarget.user.username;
+						const memberNick = m.nickname || m.user.username;
 						const cleanMemberNick = memberNick.replace(/^\[ɴᴛ\]\s*/i, '');
 						const hasLastInitialInNick = /^[A-Za-z]+\s+[A-Z]\.$/.test(cleanMemberNick.trim());
 
 						let memberLastInitial = null;
 						try {
-							const sheetData = await sheetsManager.getVerificationData(member.id);
+							const sheetData = await sheetsManager.getVerificationData(m.id);
 							if (sheetData && sheetData.name) {
 								const memberNameParts = sheetData.name.trim().split(/\s+/);
 								const memberLastName = memberNameParts.length > 1 ? memberNameParts[memberNameParts.length - 1] : '';
@@ -861,9 +859,9 @@ module.exports = {
 						}
 
 						// Since new user has "???", we need manual resolution
-						conflictingMember = member;
+						conflictingMember = m;
 						conflictingMember._conflictInfo = {
-							member,
+							member: m,
 							lastInitial: memberLastInitial,
 							hasLastInitialInNick,
 							nickname: memberNick,

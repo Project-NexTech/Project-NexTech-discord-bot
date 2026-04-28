@@ -142,7 +142,7 @@ module.exports = {
 						components: [newButtons],
 					});
 				}
-				catch {
+				catch (error) {
 					console.error('Error handling pagination button:', error);
 				}
 			});
@@ -165,7 +165,7 @@ module.exports = {
 			});
 
 		}
-		catch {
+		catch (error) {
 			console.error('Error in /events command:', error);
 			await interaction.editReply({
 				content: '❌ An error occurred while fetching events. Please try again later.',

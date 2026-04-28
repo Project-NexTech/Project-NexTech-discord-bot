@@ -1,10 +1,15 @@
-const js = require('@eslint/js');
+const globals = require("globals");
+const js = require("@eslint/js");
 
 module.exports = [
 	js.configs.recommended,
 	{
 		languageOptions: {
 			ecmaVersion: 'latest',
+			globals: {
+				...globals.browser,
+				...globals.node,
+			},
 		},
 		rules: {
 			'arrow-spacing': ['warn', { before: true, after: true }],
@@ -31,7 +36,7 @@ module.exports = [
 			'no-multiple-empty-lines': ['error', { max: 2, maxEOF: 1, maxBOF: 0 }],
 			'no-shadow': ['error', { allow: ['err', 'resolve', 'reject'] }],
 			'no-var': 'error',
-			'no-undef': 'off',
+			'no-undef': 'error',
 			'object-curly-spacing': ['error', 'always'],
 			semi: ['error', 'always'],
 			'space-before-blocks': 'error',
