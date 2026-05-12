@@ -166,11 +166,12 @@ function buildReportEmbed(report) {
 	const tracker = steps.tracker || { ok: false, detail: '' };
 	const membership = steps.membership || { ok: false, detail: '' };
 	const sort = steps.sort || { ok: false, detail: '' };
+	const form = steps.form || { ok: false, detail: '' };
 	const drive = steps.drive || { ok: false, results: [] };
 	const bot = steps.bot || { ok: false, detail: '' };
 
 	const crashed = !!report.crashed;
-	const allOk = lookup.ok && tracker.ok && membership.ok && sort.ok && drive.ok && bot.ok;
+	const allOk = lookup.ok && tracker.ok && membership.ok && sort.ok && form.ok && drive.ok && bot.ok;
 
 	let title;
 	if (crashed) {
@@ -203,6 +204,7 @@ function buildReportEmbed(report) {
 		{ name: 'Tracker tab', value: statusLine(tracker), inline: true },
 		{ name: 'Membership Status tab', value: statusLine(membership), inline: true },
 		{ name: 'Alphabetical sort', value: statusLine(sort), inline: false },
+		{ name: 'Hour request form update', value: statusLine(form), inline: false },
 	);
 
 	const driveResults = Array.isArray(drive.results) ? drive.results : [];
