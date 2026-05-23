@@ -344,6 +344,29 @@ View the volunteer hours leaderboard.
 #### `/requesthours`
 Get the link to the volunteer hours request form.
 
+### Automated Hour Approval (optional)
+
+When enabled, the bot polls the **Hour Verification** sheet and DMs department leadership to approve or decline pending requests.
+
+**Environment variables:**
+- `HOUR_APPROVAL_ENABLED=true` — Turn on polling and DMs
+- `HOUR_APPROVAL_POLL_MINUTES=5` — How often to scan for new rows (default: 5)
+- `HOUR_APPROVAL_LOOKBACK_DAYS=30` — Only notify for requests dated within the last N days
+- `HOUR_APPROVAL_SESSION_HOURS=168` — How long Approve/Decline buttons stay active (default: 7 days)
+
+**Flow:**
+1. Volunteer submits hours (Google Form → Hour Verification row with pending verdict)
+2. Bot finds leadership contact for that row's department (`LEADERSHIP_SHEET_ID`, Discord User ID required)
+3. Approver receives a DM with request details and **Approve** / **Decline** buttons
+4. **Approve** → Column C = `Approved`, Column F = approver's name from the Leadership sheet
+5. **Decline** → Column C = `Denied`
+
+**Requirements:**
+- Leadership sheet must list Discord User IDs for department contacts
+- Approver must allow DMs from server members
+- Service account needs **write** access to the Events spreadsheet (Hour Verification tab)
+- Notified row numbers persist in `data/hour-approval-notified.json` (not committed to git)
+
 **Cooldown:** 10 seconds
 
 **Features:**
@@ -407,6 +430,10 @@ INFO_SESSION_BANNER_URL=path_or_url_to_banner
 
 # Feature Flags
 CHECK_LEFT_USERS_ENABLED=false
+HOUR_APPROVAL_ENABLED=false
+HOUR_APPROVAL_POLL_MINUTES=5
+HOUR_APPROVAL_LOOKBACK_DAYS=30
+HOUR_APPROVAL_SESSION_HOURS=168
 ```
 
 4. **Set up Google Sheets credentials:**
@@ -459,6 +486,16 @@ The bot expects the following sheets:
   - Column A: Name
   - Column K: Total Hours
 
+- **Tab:** `Hour Verification`
+  - Column A: Name
+  - Column B: Hours
+  - Column C: Verdict (Approved/Denied/Pending/Unverified)
+  - Column D: Department (matched to Leadership sheet for approver lookup)
+  - Column E: Date (used for lookback filtering)
+  - Column F: Approver name (written when approved via Discord)
+  - Column H: Type of task
+  - Column I: Description
+
 - **Tab:** `Membership Status`
   - Column A: Name (starts at row 10)
   - Column B: Status (Member, New Member, Paused, Not a Member, Unknown)
@@ -502,6 +539,7 @@ The bot integrates with Google Sheets for:
 ### Data Writing
 - **User verification** - Logs new member verification data
 - **Left users tracking** - Marks users who left the server (red background)
+- **Hour verification** - Updates verdict (column C) and approver name (column F) when leadership approves via DM
 
 ### Authentication
 Uses Google Service Account authentication with OAuth 2.0. The service account must have:
@@ -605,6 +643,7 @@ Project-NexTech-discord-bot/
 ├── utils/
 │   ├── sheets.js               # Google Sheets API integration
 │   ├── calendarSync.js         # Calendar synchronization
+│   ├── hourApprovalSync.js     # Hour verification approval DMs
 │   ├── memberCache.js          # Persistent member cache system
 │   └── helpers.js              # Utility functions and embed builders
 ├── data/
@@ -631,6 +670,7 @@ Project-NexTech-discord-bot/
 - **deploy-commands.js** - Registers slash commands with Discord API
 - **utils/sheets.js** - Handles all Google Sheets operations
 - **utils/calendarSync.js** - Syncs iCal events to Discord scheduled events
+- **utils/hourApprovalSync.js** - Polls Hour Verification sheet and sends approval DMs to leadership
 - **utils/memberCache.js** - Persistent member data caching system
 - **utils/helpers.js** - Reusable functions and embed builders
 - **events/interactionCreate.js** - Handles slash commands, autocomplete, and button interactions (including nickname conflict resolution)

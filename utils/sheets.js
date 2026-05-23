@@ -231,9 +231,10 @@ class SheetsManager {
 
 	/**
 	 * Get hour verification requests that are still awaiting approval
+	 * @param {number} lookbackDays - Only include requests with a date within this many days (default 30)
 	 * @returns {Promise<Object|null>} Object with array of pending requests, or null on sheet error
 	 */
-	async getNewHourVerificationRequests() {
+	async getNewHourVerificationRequests(lookbackDays = 30) {
 		const eventsSheetId = process.env.EVENTS_SHEET_ID;
 		const response = await this.safeApiCall(
 			() => this.sheets.spreadsheets.values.get({
@@ -253,6 +254,10 @@ class SheetsManager {
 			return { requests: [] };
 		}
 
+		const cutoff = new Date();
+		cutoff.setDate(cutoff.getDate() - lookbackDays);
+		cutoff.setHours(0, 0, 0, 0);
+
 		const pendingRequests = [];
 		for (let i = 2; i < rows.length; i++) {
 			const row = rows[i];
@@ -266,13 +271,22 @@ class SheetsManager {
 				continue;
 			}
 
+			const dateValue = row[4] || '';
+			const parsedDate = this.parseHourVerificationDate(dateValue);
+			if (!parsedDate) {
+				continue;
+			}
+			if (parsedDate < cutoff) {
+				continue;
+			}
+
 			pendingRequests.push({
 				rowNumber: i + 1,
 				name: rowName,
 				hours: row[1] || 'N/A',
 				verdict: verdict || 'Pending',
 				department: row[3] || 'N/A',
-				date: row[4] || 'N/A',
+				date: dateValue || 'N/A',
 				type: row[7] || 'N/A',
 				description: row[8] || 'N/A',
 			});
@@ -281,6 +295,77 @@ class SheetsManager {
 		pendingRequests.sort((a, b) => b.rowNumber - a.rowNumber);
 
 		return { requests: pendingRequests };
+	}
+
+	/**
+	 * Parse a date cell from the Hour Verification sheet
+	 * @param {string|number} dateValue - Raw cell value
+	 * @returns {Date|null} Parsed date, or null if unparseable
+	 */
+	parseHourVerificationDate(dateValue) {
+		if (dateValue === undefined || dateValue === null || dateValue === '') {
+			return null;
+		}
+
+		if (typeof dateValue === 'number') {
+			// Google Sheets serial date (days since 1899-12-30)
+			const utcMs = (dateValue - 25569) * 86400 * 1000;
+			const date = new Date(utcMs);
+			return Number.isNaN(date.getTime()) ? null : date;
+		}
+
+		const parsed = Date.parse(String(dateValue).trim());
+		if (Number.isNaN(parsed)) {
+			return null;
+		}
+		return new Date(parsed);
+	}
+
+	/**
+	 * Update verdict (and optional approver name) for an hour verification row
+	 * @param {number} rowNumber - 1-indexed sheet row number
+	 * @param {string} verdict - Verdict text (e.g. Approved, Denied)
+	 * @param {string|null} approverName - Leadership name written to column F when approved
+	 * @returns {Promise<boolean>} Success status
+	 */
+	async updateHourVerificationVerdict(rowNumber, verdict, approverName = null) {
+		const eventsSheetId = process.env.EVENTS_SHEET_ID;
+
+		const verdictResponse = await this.safeApiCall(
+			() => this.sheets.spreadsheets.values.update({
+				spreadsheetId: eventsSheetId,
+				range: `'Hour Verification'!C${rowNumber}`,
+				valueInputOption: 'USER_ENTERED',
+				resource: {
+					values: [[verdict]],
+				},
+			}),
+			'updateHourVerificationVerdict (verdict)',
+		);
+
+		if (!verdictResponse) {
+			return false;
+		}
+
+		if (approverName && verdict.toLowerCase() === 'approved') {
+			const approverResponse = await this.safeApiCall(
+				() => this.sheets.spreadsheets.values.update({
+					spreadsheetId: eventsSheetId,
+					range: `'Hour Verification'!F${rowNumber}`,
+					valueInputOption: 'USER_ENTERED',
+					resource: {
+						values: [[approverName]],
+					},
+				}),
+				'updateHourVerificationVerdict (approver)',
+			);
+
+			if (!approverResponse) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**

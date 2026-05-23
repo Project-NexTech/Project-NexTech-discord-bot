@@ -51,6 +51,9 @@ Singleton persisted to `data/member-cache.json`. Populated by `events/ready.js` 
 ### Calendar sync (`utils/calendarSync.js`)
 `startCalendarSync(client, minutes)` polls `CALENDAR_ICAL_URL` and reconciles iCal VEVENTs containing "Info Session" with Discord `GuildScheduledEvent`s in a stage channel. UID→Discord-event-ID mapping persists to `data/event-mapping.json`.
 
+### Hour approval sync (`utils/hourApprovalSync.js`)
+When `HOUR_APPROVAL_ENABLED=true`, `startHourApprovalSync(client, minutes)` polls the **Hour Verification** tab on `EVENTS_SHEET_ID` for pending verdicts (`empty`, `Pending`, `Unverified`) within `HOUR_APPROVAL_LOOKBACK_DAYS` (default 30). For each new row, it DMs the department approver from the Leadership sheet (`getContacts`) with Approve/Decline buttons. Row numbers already notified are tracked in `data/hour-approval-notified.json`. In-flight button sessions live on `client.hourApprovalPending` (keyed by sheet row number) with a `timeoutId` — clear via `clearHourApprovalSession` on every terminal branch (same discipline as `verificationPending`). Button handlers are in `events/interactionCreate.js` (`hour_approve_*`, `hour_decline_*`). Approve writes **Approved** to column C and the leadership name to column F; Decline writes **Denied** to column C (`updateHourVerificationVerdict` in `utils/sheets.js`).
+
 ### Health check
 `index.js` has a Healthchecks.io URL and a `HEALTH_CHECK_INTERVAL` constant. Set to `0` currently, which disables pings — set to a positive millisecond value to re-enable.
 

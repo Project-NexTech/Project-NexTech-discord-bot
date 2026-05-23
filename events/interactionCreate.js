@@ -1,8 +1,27 @@
-const { Collection, Events, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+const {
+	Collection,
+	Events,
+	MessageFlags,
+	ModalBuilder,
+	TextInputBuilder,
+	TextInputStyle,
+	ActionRowBuilder,
+	EmbedBuilder,
+} = require('discord.js');
+const sheetsManager = require('../utils/sheets');
+const { clearHourApprovalSession } = require('../utils/hourApprovalSync');
+const { handleHourApprovalButton } = require('../utils/hourApprovalSync');
 
 module.exports = {
 	name: Events.InteractionCreate,
 	async execute(interaction) {
+		if (interaction.isButton()) {
+			const handled = await handleHourApprovalButton(interaction);
+			if (handled) {
+				return;
+			}
+		}
+
 		// Handle single-name confirmation button
 		if (interaction.isButton() && interaction.customId.startsWith('single_name_continue_')) {
 			const userId = interaction.customId.replace('single_name_continue_', '');
@@ -165,6 +184,68 @@ module.exports = {
 				console.error('Failed to remove buttons from message:', editError);
 			}
 			
+			return;
+		}
+
+		// Handle hour approval DM buttons
+		if (interaction.isButton()
+			&& (interaction.customId.startsWith('hour_approve_')
+				|| interaction.customId.startsWith('hour_decline_'))) {
+			const isApprove = interaction.customId.startsWith('hour_approve_');
+			const rowNumber = parseInt(
+				interaction.customId.replace(isApprove ? 'hour_approve_' : 'hour_decline_', ''),
+				10,
+			);
+
+			if (Number.isNaN(rowNumber)) {
+				return interaction.reply({
+					content: '❌ Invalid hour approval button.',
+					flags: MessageFlags.Ephemeral,
+				});
+			}
+
+			const pending = interaction.client.hourApprovalPending?.get(rowNumber);
+			if (!pending) {
+				return interaction.reply({
+					content: '❌ This hour approval session has expired or was already completed.',
+					flags: MessageFlags.Ephemeral,
+				});
+			}
+
+			if (interaction.user.id !== pending.approverId) {
+				return interaction.reply({
+					content: '❌ Only the assigned approver can use these buttons.',
+					flags: MessageFlags.Ephemeral,
+				});
+			}
+
+			const verdict = isApprove ? 'Approved' : 'Denied';
+			const approverName = isApprove ? pending.approverSheetName : null;
+			const success = await sheetsManager.updateHourVerificationVerdict(
+				rowNumber,
+				verdict,
+				approverName,
+			);
+
+			if (!success) {
+				return interaction.reply({
+					content: '❌ Failed to update the Hour Verification sheet. Please try again or update manually.',
+					flags: MessageFlags.Ephemeral,
+				});
+			}
+
+			clearHourApprovalSession(interaction.client, rowNumber);
+
+			const resultEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+				.setColor(isApprove ? 0x57F287 : 0xED4245)
+				.setTitle(isApprove ? '✅ Hour Request Approved' : '❌ Hour Request Declined')
+				.setDescription(
+					isApprove
+						? `Recorded as **Approved** under **${pending.approverSheetName}**.`
+						: 'Recorded as **Denied** on the Hour Verification sheet.',
+				);
+
+			await interaction.update({ embeds: [resultEmbed], components: [] });
 			return;
 		}
 

@@ -1,6 +1,7 @@
 const { Events } = require('discord.js');
 const sheetsManager = require('../utils/sheets');
 const { startCalendarSync } = require('../utils/calendarSync');
+const { startHourApprovalSync } = require('../utils/hourApprovalSync');
 const memberCache = require('../utils/memberCache');
 
 module.exports = {
@@ -74,6 +75,22 @@ module.exports = {
 		}
 		catch (error) {
 			console.error('❌ Failed to start calendar sync:', error.message);
+		}
+
+		// Start automatic hour approval notifications (if enabled)
+		const hourApprovalEnabled = process.env.HOUR_APPROVAL_ENABLED === 'true';
+		if (hourApprovalEnabled) {
+			try {
+				const pollMinutes = parseInt(process.env.HOUR_APPROVAL_POLL_MINUTES, 10) || 5;
+				startHourApprovalSync(client, pollMinutes);
+				console.log('✅ Hour approval sync started');
+			}
+			catch (error) {
+				console.error('❌ Failed to start hour approval sync:', error.message);
+			}
+		}
+		else {
+			console.log('ℹ️ Hour approval sync is disabled (HOUR_APPROVAL_ENABLED=false)');
 		}
 
 		// Start periodic check for users who left the server (if enabled)
