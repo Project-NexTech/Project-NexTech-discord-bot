@@ -230,6 +230,73 @@ class SheetsManager {
 	}
 
 	/**
+	 * Get hour verification requests that are still awaiting approval
+	 * @returns {Promise<Object|null>} Object with array of pending requests, or null on sheet error
+	 */
+	async getNewHourVerificationRequests() {
+		const eventsSheetId = process.env.EVENTS_SHEET_ID;
+		const response = await this.safeApiCall(
+			() => this.sheets.spreadsheets.values.get({
+				spreadsheetId: eventsSheetId,
+				range: '\'Hour Verification\'!A:I',
+			}),
+			'getNewHourVerificationRequests',
+		);
+
+		if (!response || !response.data || !response.data.values) {
+			console.error('❌ Failed to get hour verification data from Google Sheets');
+			return null;
+		}
+
+		const rows = response.data.values;
+		if (rows.length <= 2) {
+			return { requests: [] };
+		}
+
+		const pendingRequests = [];
+		for (let i = 2; i < rows.length; i++) {
+			const row = rows[i];
+			const rowName = row[0] ? row[0].trim() : '';
+			if (!rowName) {
+				continue;
+			}
+
+			const verdict = row[2] ? row[2].trim() : '';
+			if (!this.isPendingHourVerdict(verdict)) {
+				continue;
+			}
+
+			pendingRequests.push({
+				rowNumber: i + 1,
+				name: rowName,
+				hours: row[1] || 'N/A',
+				verdict: verdict || 'Pending',
+				department: row[3] || 'N/A',
+				date: row[4] || 'N/A',
+				type: row[7] || 'N/A',
+				description: row[8] || 'N/A',
+			});
+		}
+
+		pendingRequests.sort((a, b) => b.rowNumber - a.rowNumber);
+
+		return { requests: pendingRequests };
+	}
+
+	/**
+	 * Whether an Hour Verification verdict still needs approver action
+	 * @param {string} verdict - Raw verdict cell value
+	 * @returns {boolean}
+	 */
+	isPendingHourVerdict(verdict) {
+		const normalized = (verdict || '').trim().toLowerCase();
+		if (!normalized) {
+			return true;
+		}
+		return normalized === 'pending' || normalized === 'unverified';
+	}
+
+	/**
 	 * Get upcoming events, optionally filtered by department
 	 * Sheet is organized by COLUMNS (each column = one event date)
 	 * Department mapping: 1=Engineering, 2=Mentoring, 3=Programming, 4=Physics/Math, 5=Natural Sciences
