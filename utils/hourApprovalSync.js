@@ -5,6 +5,9 @@ const {
 	ActionRowBuilder,
 	ButtonBuilder,
 	ButtonStyle,
+	ModalBuilder,
+	TextInputBuilder,
+	TextInputStyle,
 } = require('discord.js');
 const sheetsManager = require('./sheets');
 
@@ -81,11 +84,70 @@ function buildApprovalButtons(rowNumber) {
 				.setStyle(ButtonStyle.Success)
 				.setEmoji('✅'),
 			new ButtonBuilder()
+				.setCustomId(`hour_change_${rowNumber}`)
+				.setLabel('Change')
+				.setStyle(ButtonStyle.Primary)
+				.setEmoji('✏️'),
+			new ButtonBuilder()
 				.setCustomId(`hour_decline_${rowNumber}`)
 				.setLabel('Decline')
 				.setStyle(ButtonStyle.Danger)
 				.setEmoji('❌'),
 		);
+}
+
+/**
+ * @param {string} value
+ * @returns {number|null}
+ */
+function parseHoursInput(value) {
+	const trimmed = (value || '').trim();
+	if (!trimmed) {
+		return null;
+	}
+
+	const hours = parseFloat(trimmed);
+	if (Number.isNaN(hours) || hours <= 0) {
+		return null;
+	}
+
+	return hours;
+}
+
+/**
+ * @param {import('discord.js').ButtonInteraction|import('discord.js').ModalSubmitInteraction} interaction
+ * @param {number} rowNumber
+ * @returns {Promise<Object|null>} Pending session, or null if already replied
+ */
+async function getHourApprovalSession(interaction, rowNumber) {
+	if (!interaction.client.hourApprovalPending?.has(rowNumber)) {
+		await interaction.reply({
+			content: '❌ This approval request has expired or was already handled.',
+			ephemeral: true,
+		});
+		return null;
+	}
+
+	const pending = interaction.client.hourApprovalPending.get(rowNumber);
+
+	if (interaction.user.id !== pending.approverId) {
+		await interaction.reply({
+			content: '❌ Only the assigned confirmer can use these controls.',
+			ephemeral: true,
+		});
+		return null;
+	}
+
+	return pending;
+}
+
+/**
+ * @param {number} rowNumber
+ * @param {number} confirmerColumnIndex
+ * @returns {Promise<boolean>}
+ */
+async function isHourRequestStillPending(rowNumber, confirmerColumnIndex) {
+	return sheetsManager.isConfirmerRowPending(rowNumber, confirmerColumnIndex);
 }
 
 /**
@@ -200,12 +262,12 @@ async function syncHourApprovalRequests(client) {
 				continue;
 			}
 
-			const approver = await sheetsManager.getContactByName(confirmer);
+			const approver = await sheetsManager.getApproverForConfirmer(confirmer);
 
 			if (!approver) {
 				console.warn(
 					`[HourApproval] No leadership contact with Discord ID for confirmer "${confirmer}" `
-					+ `(row ${request.rowNumber})`,
+					+ `(row ${request.rowNumber}). For group labels like "Anyone on the EC", add EC members with Discord IDs on the Leadership sheet.`,
 				);
 				continue;
 			}
@@ -267,41 +329,52 @@ async function handleHourApprovalButton(interaction) {
 
 	const approveMatch = interaction.customId.match(/^hour_approve_(\d+)$/);
 	const declineMatch = interaction.customId.match(/^hour_decline_(\d+)$/);
-	const match = approveMatch || declineMatch;
+	const changeMatch = interaction.customId.match(/^hour_change_(\d+)$/);
+	const match = approveMatch || declineMatch || changeMatch;
 
 	if (!match) {
 		return false;
 	}
 
 	const rowNumber = parseInt(match[1], 10);
-	const isApprove = Boolean(approveMatch);
-
-	if (!interaction.client.hourApprovalPending?.has(rowNumber)) {
-		await interaction.reply({
-			content: '❌ This approval request has expired or was already handled.',
-			ephemeral: true,
-		});
+	const pending = await getHourApprovalSession(interaction, rowNumber);
+	if (!pending) {
 		return true;
 	}
 
-	const pending = interaction.client.hourApprovalPending.get(rowNumber);
+	if (changeMatch) {
+		const currentHours = pending.request.hours === 'N/A' ? '' : String(pending.request.hours);
+		const modal = new ModalBuilder()
+			.setCustomId(`hour_change_${rowNumber}`)
+			.setTitle('Change Requested Hours');
 
-	if (interaction.user.id !== pending.approverId) {
-		await interaction.reply({
-			content: '❌ Only the assigned department approver can use these buttons.',
-			ephemeral: true,
-		});
+		const hoursInput = new TextInputBuilder()
+			.setCustomId('new_hours')
+			.setLabel('Hours to approve')
+			.setStyle(TextInputStyle.Short)
+			.setPlaceholder('e.g. 2 or 1.5')
+			.setValue(currentHours)
+			.setRequired(true)
+			.setMaxLength(10);
+
+		modal.addComponents(new ActionRowBuilder().addComponents(hoursInput));
+		await interaction.showModal(modal);
 		return true;
 	}
 
 	await interaction.deferUpdate();
 
-	const freshData = await sheetsManager.getNewHourVerificationRequests(
-		parseInt(process.env.HOUR_APPROVAL_LOOKBACK_DAYS, 10) || DEFAULT_LOOKBACK_DAYS,
-	);
-	const stillPending = freshData?.requests.some(req => req.rowNumber === rowNumber);
+	const confirmerColumnIndex = pending.request.confirmerColumnIndex;
+	if (confirmerColumnIndex === undefined || confirmerColumnIndex === null) {
+		await interaction.editReply({
+			content: '❌ Could not resolve this confirmer\'s column in the sheet.',
+			embeds: interaction.message.embeds,
+			components: [],
+		});
+		return true;
+	}
 
-	if (!stillPending) {
+	if (!await isHourRequestStillPending(rowNumber, confirmerColumnIndex)) {
 		clearHourApprovalSession(interaction.client, rowNumber);
 		await interaction.editReply({
 			content: '❌ This request is no longer pending in the sheet.',
@@ -311,15 +384,18 @@ async function handleHourApprovalButton(interaction) {
 		return true;
 	}
 
+	const isApprove = Boolean(approveMatch);
 	const approverName = pending.approverSheetName
 		|| interaction.member?.displayName
 		|| interaction.user.displayName
 		|| interaction.user.username;
-	const verdict = isApprove ? 'Approved' : 'Denied';
-	const success = await sheetsManager.updateHourVerificationVerdict(
+	const sheetStatus = isApprove ? 'Approved' : 'Denied';
+	const success = await sheetsManager.setConfirmerHourStatus(
 		rowNumber,
-		verdict,
-		isApprove ? approverName : null,
+		confirmerColumnIndex,
+		sheetStatus,
+		null,
+		approverName,
 	);
 
 	clearHourApprovalSession(interaction.client, rowNumber);
@@ -338,8 +414,8 @@ async function handleHourApprovalButton(interaction) {
 		.setTitle(isApprove ? '✅ Hour Request Approved' : '❌ Hour Request Declined')
 		.setDescription(
 			isApprove
-				? `Marked **Approved** in the sheet (approver: **${approverName}**).`
-				: 'Marked **Denied** in the sheet.',
+				? `Set **Approved** in **${pending.request.confirmer}**'s column (by **${approverName}**).`
+				: `Set **Denied** in **${pending.request.confirmer}**'s column.`,
 		);
 
 	await interaction.editReply({
@@ -349,7 +425,113 @@ async function handleHourApprovalButton(interaction) {
 	});
 
 	console.log(
-		`[HourApproval] Row ${rowNumber} ${verdict.toLowerCase()} by ${interaction.user.tag}`,
+		`[HourApproval] Row ${rowNumber} ${isApprove ? 'approved' : 'denied'} by ${interaction.user.tag}`,
+	);
+
+	return true;
+}
+
+/**
+ * Handle modal submission to change hours and approve
+ * @param {import('discord.js').ModalSubmitInteraction} interaction
+ * @returns {Promise<boolean>}
+ */
+async function handleHourApprovalModal(interaction) {
+	if (!interaction.isModalSubmit()) {
+		return false;
+	}
+
+	const match = interaction.customId.match(/^hour_change_(\d+)$/);
+	if (!match) {
+		return false;
+	}
+
+	const rowNumber = parseInt(match[1], 10);
+	const pending = await getHourApprovalSession(interaction, rowNumber);
+	if (!pending) {
+		return true;
+	}
+
+	const newHours = parseHoursInput(interaction.fields.getTextInputValue('new_hours'));
+	if (newHours === null) {
+		await interaction.reply({
+			content: '❌ Enter a valid number of hours greater than zero (e.g. `2` or `1.5`).',
+			ephemeral: true,
+		});
+		return true;
+	}
+
+	await interaction.deferReply({ ephemeral: true });
+
+	const confirmerColumnIndex = pending.request.confirmerColumnIndex;
+	if (confirmerColumnIndex === undefined || confirmerColumnIndex === null) {
+		await interaction.editReply({
+			content: '❌ Could not resolve this confirmer\'s column in the sheet.',
+		});
+		return true;
+	}
+
+	if (!await isHourRequestStillPending(rowNumber, confirmerColumnIndex)) {
+		clearHourApprovalSession(interaction.client, rowNumber);
+		await interaction.editReply({
+			content: '❌ This request is no longer pending in the sheet.',
+		});
+		return true;
+	}
+
+	const approverName = pending.approverSheetName
+		|| interaction.member?.displayName
+		|| interaction.user.displayName
+		|| interaction.user.username;
+	const success = await sheetsManager.setConfirmerHourStatus(
+		rowNumber,
+		confirmerColumnIndex,
+		'Changed',
+		newHours,
+		approverName,
+	);
+
+	if (!success) {
+		await interaction.editReply({
+			content: '❌ Failed to update Google Sheets. Please update the row manually.',
+		});
+		return true;
+	}
+
+	clearHourApprovalSession(interaction.client, rowNumber);
+
+	const formattedHours = Number.isInteger(newHours) ? String(newHours) : String(newHours);
+
+	try {
+		const channel = await interaction.client.channels.fetch(pending.channelId);
+		const dmMessage = await channel.messages.fetch(pending.messageId);
+		const originalEmbed = dmMessage.embeds[0];
+		const updatedFields = originalEmbed.fields.map(field =>
+			field.name === 'Hours'
+				? { name: field.name, value: formattedHours, inline: field.inline }
+				: field,
+		);
+
+		const sourceEmbed = EmbedBuilder.from(originalEmbed)
+			.setColor(0x57F287)
+			.setTitle('✅ Hours Changed')
+			.setDescription(
+				`Set **Changed** with **${formattedHours}** hour(s) in **${pending.request.confirmer}**'s column (by **${approverName}**).`,
+			)
+			.setFields(updatedFields);
+
+		await dmMessage.edit({ embeds: [sourceEmbed], components: [] });
+	}
+	catch (error) {
+		console.error(`[HourApproval] Failed to edit DM after change for row ${rowNumber}:`, error.message);
+	}
+
+	await interaction.editReply({
+		content: `✅ Set **Changed** with **${formattedHours}** hour(s) in the sheet.`,
+	});
+
+	console.log(
+		`[HourApproval] Row ${rowNumber} approved with ${formattedHours} hour(s) by ${interaction.user.tag}`,
 	);
 
 	return true;
@@ -359,6 +541,7 @@ module.exports = {
 	startHourApprovalSync,
 	syncHourApprovalRequests,
 	handleHourApprovalButton,
+	handleHourApprovalModal,
 	buildHourApprovalEmbed,
 	clearHourApprovalSession,
 	loadNotifiedRows,
