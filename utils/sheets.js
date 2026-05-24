@@ -286,6 +286,7 @@ class SheetsManager {
 				hours: row[1] || 'N/A',
 				verdict: verdict || 'Pending',
 				department: row[3] || 'N/A',
+				confirmer: row[5] || 'N/A',
 				date: dateValue || 'N/A',
 				type: row[7] || 'N/A',
 				description: row[8] || 'N/A',
@@ -542,6 +543,57 @@ class SheetsManager {
 			}));
 
 		return contacts;
+	}
+
+	/**
+	 * Get leadership contact by name
+	 * @param {string} name - The name to search for
+	 * @returns {Promise<Object|null>} The contact data or null if not found
+	 */
+	async getContactByName(name) {
+		const spreadsheetId = process.env.LEADERSHIP_SHEET_ID;
+
+		const response = await this.safeApiCall(
+			() => this.sheets.spreadsheets.values.get({
+				spreadsheetId,
+				range: 'Sheet1!A:F', // Adjust sheet name if needed
+			}),
+			'getContactByName',
+		);
+
+		if (!response || !response.data) {
+			console.error('❌ Failed to get contacts data from Google Sheets for getContactByName');
+			return null;
+		}
+
+		const rows = response.data.values || [];
+		const normalizedSearchName = name.toLowerCase().trim();
+		
+		// Map data
+		const contacts = rows.slice(1)
+			.map(row => ({
+				name: row[0] || 'Unknown',
+				department: row[1] || '',
+				email: row[2] || 'No email listed',
+				discordUsername: row[3] || 'Unknown',
+				discordId: row[4] || '',
+				role: row[5] || 'Member',
+			}));
+
+		// Find contact by exact match (case-insensitive) or partial if exact fails
+		const contact = contacts.find(c => c.name.toLowerCase().trim() === normalizedSearchName);
+		
+		if (contact && contact.discordId && contact.discordId.trim()) {
+			return contact;
+		}
+
+		// Fallback: partial match
+		const partialContact = contacts.find(c => normalizedSearchName.includes(c.name.toLowerCase().trim()));
+		if (partialContact && partialContact.discordId && partialContact.discordId.trim()) {
+			return partialContact;
+		}
+
+		return null;
 	}
 
 	/**

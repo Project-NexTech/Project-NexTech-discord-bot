@@ -46,20 +46,6 @@ function saveNotifiedRows(notifiedRows) {
 }
 
 /**
- * @param {Array} contacts
- * @returns {Object|null}
- */
-function pickDepartmentApprover(contacts) {
-	const withDiscord = contacts.filter(contact => contact.discordId && contact.discordId.trim());
-	if (withDiscord.length === 0) {
-		return null;
-	}
-
-	const lead = withDiscord.find(contact => /lead/i.test(contact.role || ''));
-	return lead || withDiscord[0];
-}
-
-/**
  * @param {Object} request
  * @returns {EmbedBuilder}
  */
@@ -71,6 +57,7 @@ function buildHourApprovalEmbed(request) {
 		.addFields(
 			{ name: 'Volunteer', value: request.name, inline: true },
 			{ name: 'Hours', value: String(request.hours), inline: true },
+			{ name: 'Confirmer', value: request.confirmer, inline: true },
 			{ name: 'Department', value: request.department, inline: true },
 			{ name: 'Date', value: String(request.date), inline: true },
 			{ name: 'Type', value: String(request.type), inline: true },
@@ -202,23 +189,22 @@ async function syncHourApprovalRequests(client) {
 				continue;
 			}
 
-			const department = request.department && request.department !== 'N/A'
-				? request.department.trim()
+			const confirmer = request.confirmer && request.confirmer !== 'N/A'
+				? request.confirmer.trim()
 				: null;
 
-			if (!department) {
+			if (!confirmer) {
 				console.warn(
-					`[HourApproval] Row ${request.rowNumber} has no department — cannot find approver`,
+					`[HourApproval] Row ${request.rowNumber} has no confirmer — cannot find approver`,
 				);
 				continue;
 			}
 
-			const contacts = await sheetsManager.getContacts(department);
-			const approver = pickDepartmentApprover(contacts);
+			const approver = await sheetsManager.getContactByName(confirmer);
 
 			if (!approver) {
 				console.warn(
-					`[HourApproval] No leadership contact with Discord ID for department "${department}" `
+					`[HourApproval] No leadership contact with Discord ID for confirmer "${confirmer}" `
 					+ `(row ${request.rowNumber})`,
 				);
 				continue;
