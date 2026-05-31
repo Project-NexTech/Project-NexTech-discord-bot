@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env.tester') });
+require('dotenv').config({ path: path.join(__dirname, '..', '.env.tester'), override: true });
 const sheetsManager = require('../utils/sheets');
 
 function loadNotifiedRows() {

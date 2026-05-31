@@ -13,7 +13,6 @@ const sheetsManager = require('./sheets');
 
 const notifiedFilePath = path.join(__dirname, '..', 'data', 'hour-approval-notified.json');
 const DEFAULT_LOOKBACK_DAYS = 30;
-const DEFAULT_POLL_MINUTES = 5;
 const DEFAULT_SESSION_HOURS = 168; // 7 days
 
 /**
@@ -365,15 +364,6 @@ async function handleHourApprovalButton(interaction) {
 	await interaction.deferUpdate();
 
 	const confirmerColumnIndex = pending.request.confirmerColumnIndex;
-	if (confirmerColumnIndex === undefined || confirmerColumnIndex === null) {
-		await interaction.editReply({
-			content: '❌ Could not resolve this confirmer\'s column in the sheet.',
-			embeds: interaction.message.embeds,
-			components: [],
-		});
-		return true;
-	}
-
 	if (!await isHourRequestStillPending(rowNumber, confirmerColumnIndex)) {
 		clearHourApprovalSession(interaction.client, rowNumber);
 		await interaction.editReply({
@@ -464,13 +454,6 @@ async function handleHourApprovalModal(interaction) {
 	await interaction.deferReply({ ephemeral: true });
 
 	const confirmerColumnIndex = pending.request.confirmerColumnIndex;
-	if (confirmerColumnIndex === undefined || confirmerColumnIndex === null) {
-		await interaction.editReply({
-			content: '❌ Could not resolve this confirmer\'s column in the sheet.',
-		});
-		return true;
-	}
-
 	if (!await isHourRequestStillPending(rowNumber, confirmerColumnIndex)) {
 		clearHourApprovalSession(interaction.client, rowNumber);
 		await interaction.editReply({
