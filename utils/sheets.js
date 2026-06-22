@@ -518,14 +518,18 @@ class SheetsManager {
 				return confirmerColumnMap.get(key);
 			}
 		}
-
+		const fuzzyMatch = this.findConfirmerColumnByFuzzyHeader(normalized, confirmerColumnMap);
+		if (fuzzyMatch !== null) {
+			return fuzzyMatch;
+		}
 		for (const [headerName, columnIndex] of confirmerColumnMap.entries()) {
 			if (normalized.includes(headerName) || headerName.includes(normalized)) {
 				return columnIndex;
 			}
 		}
 
-		return this.findConfirmerColumnByFuzzyHeader(normalized, confirmerColumnMap);
+		// return this.findConfirmerColumnByFuzzyHeader(normalized, confirmerColumnMap);
+		return null;
 	}
 
 	/**
