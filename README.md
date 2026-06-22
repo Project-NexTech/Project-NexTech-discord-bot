@@ -542,7 +542,7 @@ The bot integrates with Google Sheets for:
 ### Data Writing
 - **User verification** - Logs new member verification data
 - **Left users tracking** - Marks users who left the server (red background)
-- **Hour verification** - Updates verdict (column C) and approver name (column F) when leadership approves via DM
+- **Hour verification** - Updates the assigned confirmer's verdict column (and column B hours when changed) when leadership approves via DM
 
 ### Authentication
 Uses Google Service Account authentication with OAuth 2.0. The service account must have:

@@ -1,5 +1,5 @@
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env.tester') });
+require('dotenv').config({ path: path.join(__dirname, '..', 'test.env') });
 const sheetsManager = require('../utils/sheets');
 
 (async () => {

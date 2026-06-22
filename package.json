@@ -6,7 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
 	"start": "node index.js",
-	"start-tester": "DOTENV_CONFIG_PATH=.env.tester node -r dotenv/config index.js",
+	"start-tester": "DOTENV_CONFIG_PATH=test.env node -r dotenv/config index.js",
 	"deploy-prod": "node --env-file=prod.env deploy-commands.js",
 	"start-prod": "node --env-file=prod.env index.js"
   },
