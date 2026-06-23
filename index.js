@@ -85,6 +85,7 @@ client.hourApprovalPending = new Map();
 const foldersPath = path.join(__dirname, 'commands');
 const commandFolders = fs.readdirSync(foldersPath);
 client.cooldowns = new Collection();
+client.projectGroupPending = new Map();
 
 for (const folder of commandFolders) {
 	const commandsPath = path.join(foldersPath, folder);

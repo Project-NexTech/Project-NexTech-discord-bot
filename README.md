@@ -106,6 +106,30 @@ Create a new region role with proper formatting, ordering, and optional member a
 
 ---
 
+#### `/createprojectgroup`
+Create a Discord channel for a project group and grant access to its members.
+
+**Permissions:** NT Executive Committee only  
+**Cooldown:** None  
+**Options:**
+- `name` (required) - Display name for the channel (automatically slugified to meet Discord naming rules)
+- `code` (required) - Project group code, must match a tab name in the Project Group Tracker sheet
+
+**Features:**
+- Looks up the matching tab in the Project Group Tracker by code
+- Reads member names from cells F3 (Group Lead(s)) and E4 (Members, top-left of merged E4:F5)
+- Resolves names to Discord IDs via the Verification sheet using fuzzy matching, reading both the
+  `#verify-here` and `#nextech-verify` tabs
+- Skips members whose verification row is shaded red (they left the server), since a permission
+  overwrite for them would be useless
+- Shows an ephemeral confirmation preview before creating anything, including any names that could
+  not be matched and any matched members who left the server
+- Creates the channel in the Project Groups category (inherits category permissions)
+- Adds per-user View Channel + Send Messages overwrites for all matched members still in the server
+- Sends a creation summary to staff chat
+
+---
+
 #### `/syncroles`
 Synchronize NT Enrolled/Unenrolled roles based on membership status from Google Sheets.
 
@@ -418,12 +442,14 @@ VERIFICATION_TEAM_ROLE_ID=role_id
 INFO_SESSION_VOICE_CHANNEL_ID=channel_id
 NT_CHAT_CHANNEL_ID=channel_id
 STAFF_CHAT_CHANNEL_ID=channel_id
+PROJECT_GROUPS_CATEGORY_ID=category_id
 
 # Google Sheets IDs
 VOLUNTEERS_SHEET_ID=sheet_id
 EVENTS_SHEET_ID=sheet_id
 LEADERSHIP_SHEET_ID=sheet_id
 VERIFICATION_SHEET_ID=sheet_id
+PROJECT_GROUP_TRACKER_SHEET_ID=sheet_id
 
 # URLs
 CALENDAR_URL=your_calendar_url
@@ -510,6 +536,12 @@ The bot expects the following sheets:
 #### Verification Sheet (`VERIFICATION_SHEET_ID`)
 - **Tab:** `#nextech-verify`
 - **Columns:** Discord ID (A), Name (B), Grade (F), School (G), Region (H), Robotics Team (I), Invite Source (J)
+
+#### Project Group Tracker (`PROJECT_GROUP_TRACKER_SHEET_ID`)
+- **Tabs:** One tab per project group; the tab title is the group's code
+- **Cells (per tab):**
+  - `F3` - Group Lead(s), comma-separated names
+  - `E4` - Members (top-left of the merged E4:F5 region), comma-separated names
 
 ### Role Naming Conventions
 
@@ -615,6 +647,16 @@ Uses Google Service Account authentication with OAuth 2.0. The service account m
 - Shows countdown timer in Discord timestamp format
 - Resets after cooldown expires
 
+## TODO
+
+### `/syncprojectgroup` (planned)
+A command to re-sync the permission overwrites on an existing project group channel against the
+current state of the Project Group Tracker sheet. Useful when group membership changes after the
+channel was originally created. Should accept a `channel` argument and a `code` argument, re-read
+cells F3 and E4 from the matching tab, resolve names, diff against the channel's existing
+overwrites, and add/remove as needed. Should follow the same ephemeral confirmation pattern as
+`/createprojectgroup`.
+
 ## Project Structure
 
 ```
@@ -622,6 +664,7 @@ Project-NexTech-discord-bot/
 ├── commands/
 │   ├── admin/
 │   │   ├── broadcast.js        # Broadcast messages to filtered member groups
+│   │   ├── createprojectgroup.js  # Create project group channels with member access
 │   │   ├── createregion.js     # Create region/country roles
 │   │   ├── syncroles.js        # Sync enrollment roles from Sheets
 │   │   └── verifyuser.js       # Manually verify new members
