@@ -1,8 +1,172 @@
-const { Collection, Events, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+const { Collection, Events, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder, ChannelType } = require('discord.js');
 
 module.exports = {
 	name: Events.InteractionCreate,
 	async execute(interaction) {
+		// Handle project group channel creation - cancel button
+		if (interaction.isButton() && interaction.customId.startsWith('cancel_cpg_')) {
+			const interactionId = interaction.customId.replace('cancel_cpg_', '');
+			const pending = interaction.client.projectGroupPending?.get(interactionId);
+
+			if (!pending) {
+				return interaction.update({
+					content: 'This session has expired.',
+					embeds: [],
+					components: [],
+				}).catch(() => null);
+			}
+
+			if (pending.timeoutId) {
+				clearTimeout(pending.timeoutId);
+			}
+			interaction.client.projectGroupPending.delete(interactionId);
+
+			return interaction.update({
+				content: 'Channel creation cancelled.',
+				embeds: [],
+				components: [],
+			});
+		}
+
+		// Handle project group channel creation - confirm button
+		if (interaction.isButton() && interaction.customId.startsWith('confirm_cpg_')) {
+			const interactionId = interaction.customId.replace('confirm_cpg_', '');
+			const pending = interaction.client.projectGroupPending?.get(interactionId);
+
+			if (!pending) {
+				return interaction.reply({
+					content: 'This session has expired.',
+					flags: MessageFlags.Ephemeral,
+				});
+			}
+
+			await interaction.deferUpdate();
+
+			if (pending.timeoutId) {
+				clearTimeout(pending.timeoutId);
+			}
+			interaction.client.projectGroupPending.delete(interactionId);
+
+			const guild = interaction.guild;
+
+			try {
+				const category = await guild.channels.fetch(process.env.PROJECT_GROUPS_CATEGORY_ID);
+
+				// Discord copies the category's permission overwrites automatically at
+				// creation time. Do NOT call channel.lockPermissions() — it would be
+				// invalidated once per-user overwrites are added below.
+				const channel = await guild.channels.create({
+					name: pending.slugifiedName,
+					type: ChannelType.GuildText,
+					parent: category.id,
+				});
+
+				// Add per-user overwrites sequentially to avoid rate-limit spikes
+				const addedMembers = [];
+				const failedMembers = [];
+				const skippedMembers = [];
+
+				for (const member of pending.matched) {
+					// Skip members who left the server (red row) — the overwrite would be useless
+					if (member.left) {
+						skippedMembers.push(member.name);
+						continue;
+					}
+
+					try {
+						await channel.permissionOverwrites.create(member.discordId, {
+							ViewChannel: true,
+							SendMessages: true,
+						});
+						addedMembers.push(member);
+					}
+					catch (overwriteError) {
+						console.error(`[CreateProjectGroup] Failed to set permissions for ${member.name} (${member.discordId}):`, overwriteError.message);
+						failedMembers.push(member.name);
+					}
+				}
+
+				await interaction.editReply({
+					content: `✅ Channel created: ${channel}`,
+					embeds: [],
+					components: [],
+				});
+
+				// Send a summary embed to the staff chat channel
+				const staffChatChannelId = process.env.STAFF_CHAT_CHANNEL_ID;
+				if (staffChatChannelId) {
+					try {
+						const staffChatChannel = await interaction.client.channels.fetch(staffChatChannelId);
+						if (staffChatChannel) {
+							const summaryEmbed = new EmbedBuilder()
+								.setColor(0x57F287)
+								.setTitle('Project Group Channel Created')
+								.addFields(
+									{ name: 'Channel', value: `<#${channel.id}> (\`#${pending.slugifiedName}\`)`, inline: false },
+								);
+
+							if (pending.originalName !== pending.slugifiedName) {
+								summaryEmbed.addFields({ name: 'Original Name', value: pending.originalName, inline: false });
+							}
+
+							summaryEmbed.addFields(
+								{ name: 'Code', value: pending.code, inline: false },
+								{
+									name: 'Members Added',
+									value: addedMembers.length > 0
+										? addedMembers.map(m => `<@${m.discordId}>`).join('\n')
+										: '(none)',
+									inline: false,
+								},
+							);
+
+							if (skippedMembers.length > 0) {
+								summaryEmbed.addFields({
+									name: 'Skipped (Left the Server)',
+									value: skippedMembers.join('\n'),
+									inline: false,
+								});
+							}
+
+							if (pending.unmatched.length > 0) {
+								summaryEmbed.addFields({
+									name: 'Not Found in Verification Sheet',
+									value: pending.unmatched.join('\n'),
+									inline: false,
+								});
+							}
+
+							if (failedMembers.length > 0) {
+								summaryEmbed.addFields({
+									name: 'Failed to Set Permissions',
+									value: failedMembers.join('\n'),
+									inline: false,
+								});
+							}
+
+							summaryEmbed.addFields({ name: 'Created by', value: `<@${pending.executorId}>`, inline: false });
+							summaryEmbed.setTimestamp();
+
+							await staffChatChannel.send({ embeds: [summaryEmbed] });
+						}
+					}
+					catch (channelError) {
+						console.error('[CreateProjectGroup] Could not send summary to staff chat:', channelError);
+					}
+				}
+			}
+			catch (createError) {
+				console.error('[CreateProjectGroup] Failed to create channel:', createError);
+				await interaction.editReply({
+					content: `❌ Failed to create the channel: ${createError.message}`,
+					embeds: [],
+					components: [],
+				}).catch(() => null);
+			}
+
+			return;
+		}
+
 		// Handle single-name confirmation button
 		if (interaction.isButton() && interaction.customId.startsWith('single_name_continue_')) {
 			const userId = interaction.customId.replace('single_name_continue_', '');

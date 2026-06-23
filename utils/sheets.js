@@ -954,6 +954,265 @@ class SheetsManager {
 
 		return sheet.properties.sheetId;
 	}
+
+	/**
+	 * Get the raw member names for a project group from the Project Group Tracker
+	 * Reads the Group Lead(s) cell (F3) and the Members cell (E4, top-left of the
+	 * merged E4:F5 region) from the tab whose title matches the given code.
+	 * @param {string} code - Project group code (matched against tab titles, case-insensitive)
+	 * @returns {Promise<Object|null>} { found: false } if no tab matches,
+	 *   { found: true, rawNames: string[] } on success, or null on API error
+	 */
+	async getProjectGroupMembers(code) {
+		const spreadsheetId = process.env.PROJECT_GROUP_TRACKER_SHEET_ID;
+
+		return this.safeApiCall(async () => {
+			// 1. Retrieve spreadsheet metadata (tab titles only)
+			const meta = await this.sheets.spreadsheets.get({
+				spreadsheetId,
+				fields: 'sheets.properties.title',
+			});
+
+			const sheets = meta.data.sheets || [];
+
+			// 2. Find the tab whose title matches the code (case-insensitive)
+			const matchingSheet = sheets.find(s =>
+				s.properties.title.toLowerCase() === code.toLowerCase(),
+			);
+
+			if (!matchingSheet) {
+				return { found: false };
+			}
+
+			const tabTitle = matchingSheet.properties.title;
+			// Escape single quotes in the tab title for A1 notation
+			const escapedTitle = tabTitle.replace(/'/g, "''");
+
+			// 3. Read F3 (Group Lead(s)) and E4 (Members) in a single round trip
+			const batch = await this.sheets.spreadsheets.values.batchGet({
+				spreadsheetId,
+				ranges: [`'${escapedTitle}'!F3`, `'${escapedTitle}'!E4`],
+			});
+
+			const valueRanges = batch.data.valueRanges || [];
+			const cellValues = valueRanges.map(vr =>
+				(vr.values && vr.values[0] && vr.values[0][0]) ? String(vr.values[0][0]) : '',
+			);
+
+			// 4. Split on commas, trim, drop empties, and deduplicate across both cells
+			const rawNames = [];
+			const seen = new Set();
+			for (const cell of cellValues) {
+				for (const segment of cell.split(',')) {
+					const name = segment.trim();
+					if (name && !seen.has(name.toLowerCase())) {
+						seen.add(name.toLowerCase());
+						rawNames.push(name);
+					}
+				}
+			}
+
+			return { found: true, rawNames };
+		}, 'getProjectGroupMembers');
+	}
+
+	/**
+	 * Normalize a name for matching: lowercase, drop question marks (e.g. the
+	 * "???" / "?." placeholders verification uses for unknown last names), and
+	 * collapse whitespace.
+	 * @param {string} str - Raw name
+	 * @returns {string} Normalized name
+	 */
+	normalizeName(str) {
+		return String(str).toLowerCase().replace(/\?/g, '').replace(/\s+/g, ' ').trim();
+	}
+
+	/**
+	 * Build a reusable verification name index from both the '#verify-here' and
+	 * '#nextech-verify' tabs. This performs the (relatively expensive) sheet reads
+	 * once so the result can be reused to resolve many name lists without further
+	 * API calls — see resolveNamesWithIndex. Column A = Discord ID, Column B = Name.
+	 * Rows shaded red are members who left the server (marked by checkLeftUsers).
+	 * @returns {Promise<Object|null>} { nameToDiscordId, redIds: Set, liveIds: Set }
+	 *   or null if no verification tab could be read
+	 */
+	async buildVerificationNameIndex() {
+		const spreadsheetId = process.env.VERIFICATION_SHEET_ID;
+		const tabNames = ['#verify-here', '#nextech-verify'];
+
+		// Map of normalized name -> Discord ID for case-insensitive matching
+		const nameToDiscordId = {};
+		const redIds = new Set(); // Discord IDs whose row is shaded red (left the server)
+		const liveIds = new Set(); // Discord IDs seen on a non-red row
+		let anySheetRead = false;
+
+		for (const tabName of tabNames) {
+			const escapedTitle = tabName.replace(/'/g, "''");
+
+			// Fetch values + cell formatting in one call so we can detect red rows
+			const response = await this.safeApiCall(
+				() => this.sheets.spreadsheets.get({
+					spreadsheetId,
+					ranges: [`'${escapedTitle}'!A:J`],
+					includeGridData: true,
+				}),
+				`buildVerificationNameIndex (fetch ${tabName})`,
+			);
+
+			const rowData = response?.data?.sheets?.[0]?.data?.[0]?.rowData;
+			if (!rowData) {
+				console.error(`❌ Could not read tab "${tabName}" for name resolution`);
+				continue;
+			}
+			anySheetRead = true;
+
+			// Skip header row (index 0)
+			for (let i = 1; i < rowData.length; i++) {
+				const cells = rowData[i]?.values;
+				if (!cells) continue;
+
+				const discordId = cells[0]?.formattedValue ? String(cells[0].formattedValue).trim() : '';
+				const name = cells[1]?.formattedValue ? String(cells[1].formattedValue).trim() : '';
+
+				if (!name || !discordId) continue;
+
+				// Detect the red "left the server" background on column A (same color as checkLeftUsers)
+				const bgColor = cells[0]?.effectiveFormat?.backgroundColor;
+				const isRed = bgColor
+					&& Math.abs((bgColor.red ?? 0) - 0.956) < 0.01
+					&& Math.abs((bgColor.green ?? 0) - 0.8) < 0.01
+					&& Math.abs((bgColor.blue ?? 0) - 0.8) < 0.01;
+
+				if (isRed) {
+					redIds.add(discordId);
+				}
+				else {
+					liveIds.add(discordId);
+				}
+
+				const normalizedName = this.normalizeName(name);
+				if (!normalizedName) continue; // name was only question marks / whitespace
+				nameToDiscordId[normalizedName] = discordId;
+
+				// Also store variants with different apostrophe types for better matching
+				if (normalizedName.includes("'") || normalizedName.includes("'")) {
+					const withRegularApostrophe = normalizedName.replace(/['']/g, "'");
+					const withSmartApostrophe = normalizedName.replace(/'/g, "'");
+
+					if (withRegularApostrophe !== normalizedName) {
+						nameToDiscordId[withRegularApostrophe] = discordId;
+					}
+					if (withSmartApostrophe !== normalizedName) {
+						nameToDiscordId[withSmartApostrophe] = discordId;
+					}
+				}
+			}
+		}
+
+		if (!anySheetRead) {
+			console.error('❌ Failed to read any verification tab for name resolution');
+			return null;
+		}
+
+		return { nameToDiscordId, redIds, liveIds };
+	}
+
+	/**
+	 * Resolve raw names to Discord IDs against a pre-built verification index.
+	 * Pure (no API calls) so it can be invoked repeatedly. Uses the same
+	 * case-insensitive, apostrophe-normalised, subsequence fuzzy-matching logic as
+	 * getMembershipStatus. Matched entries whose row is shaded red everywhere it
+	 * appears (the member left the server) are flagged with left: true.
+	 * @param {string[]} rawNames - Names to resolve
+	 * @param {Object} index - Result of buildVerificationNameIndex
+	 * @returns {Object} { matched: Array<{name, discordId, left}>, unmatched: string[] }
+	 */
+	resolveNamesWithIndex(rawNames, index) {
+		const { nameToDiscordId, redIds, liveIds } = index;
+
+		// Helper function for fuzzy name matching (mirrors getMembershipStatus)
+		const findBestMatch = (searchName) => {
+			const normalized = this.normalizeName(searchName);
+
+			// 1. Try exact match first
+			if (nameToDiscordId[normalized]) {
+				return nameToDiscordId[normalized];
+			}
+
+			// 2. Try matching with different apostrophe types
+			const withRegularApostrophe = normalized.replace(/['']/g, "'");
+			const withSmartApostrophe = normalized.replace(/'/g, "'");
+
+			if (nameToDiscordId[withRegularApostrophe]) {
+				return nameToDiscordId[withRegularApostrophe];
+			}
+			if (nameToDiscordId[withSmartApostrophe]) {
+				return nameToDiscordId[withSmartApostrophe];
+			}
+
+			// 3. Try matching where the sheet name contains the search name
+			// (e.g., "Mark Blair" matches "Mark Nelson Blair")
+			const containsMatch = Object.keys(nameToDiscordId).find(key => {
+				const keyParts = key.split(' ').filter(p => p.length > 0);
+				const searchParts = normalized.split(' ').filter(p => p.length > 0);
+
+				// Check if all parts of search name appear in key (in order)
+				let keyIndex = 0;
+				for (const searchPart of searchParts) {
+					let found = false;
+					for (let i = keyIndex; i < keyParts.length; i++) {
+						if (keyParts[i] === searchPart) {
+							keyIndex = i + 1;
+							found = true;
+							break;
+						}
+					}
+					if (!found) return false;
+				}
+				return true;
+			});
+
+			if (containsMatch) {
+				return nameToDiscordId[containsMatch];
+			}
+
+			return null;
+		};
+
+		const matched = [];
+		const unmatched = [];
+
+		for (const name of rawNames) {
+			const discordId = findBestMatch(name);
+			if (discordId) {
+				// "left" if the row is red everywhere it appears (member left the server)
+				const left = redIds.has(discordId) && !liveIds.has(discordId);
+				matched.push({ name, discordId, left });
+			}
+			else {
+				unmatched.push(name);
+			}
+		}
+
+		return { matched, unmatched };
+	}
+
+	/**
+	 * Resolve a list of raw names to Discord IDs using the Verification sheet.
+	 * Convenience wrapper that reads the verification tabs and resolves in one
+	 * call; for resolving many lists, build the index once with
+	 * buildVerificationNameIndex and reuse it via resolveNamesWithIndex.
+	 * @param {string[]} rawNames - Names to resolve
+	 * @returns {Promise<Object|null>} { matched: Array<{name, discordId, left}>, unmatched: string[] }
+	 *   or null if no verification tab could be read
+	 */
+	async resolveNamesToDiscordIds(rawNames) {
+		const index = await this.buildVerificationNameIndex();
+		if (!index) {
+			return null;
+		}
+		return this.resolveNamesWithIndex(rawNames, index);
+	}
 }
 
 module.exports = new SheetsManager();

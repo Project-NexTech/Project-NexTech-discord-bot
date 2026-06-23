@@ -15,6 +15,8 @@ node list-all-commands.js        # List commands currently registered with Disco
 node delete-command.js           # Remove a specific command
 node get-role-ids.js             # Print all role IDs from the guild
 node generate-broadcast-list.js <input.csv>  # Build data/broadcast-list.csv from a CSV (skips first 6 rows, reads column B)
+
+node create-all-project-groups.js            # One-time: create a channel for every Project Group Tracker tab (--dry-run to preview, --prod for prod.env)
 ```
 
 There is no test suite (`npm test` is a placeholder). Lint config is in `eslint.config.js` (tabs for indent, Stroustrup braces, trailing commas required, semicolons required).
