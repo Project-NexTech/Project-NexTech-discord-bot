@@ -7,8 +7,10 @@ module.exports = {
 		if (interaction.isButton()) {
 			const handled = await handleHourApprovalButton(interaction);
 			if (handled) {
-			  return;
+				return;
+			}
 		}
+
 		// Handle project group channel creation - cancel button
 		if (interaction.isButton() && interaction.customId.startsWith('cancel_cpg_')) {
 			const interactionId = interaction.customId.replace('cancel_cpg_', '');
