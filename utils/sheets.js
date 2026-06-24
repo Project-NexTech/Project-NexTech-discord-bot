@@ -893,10 +893,13 @@ class SheetsManager {
 	}
 
 	/**
-	 * Get contact information for a department
-	 * Sheet format: A=Name, B=Department, C=Email, D=Discord Username, E=Discord User ID, F=Role/Note
-	 * @param {string} department - Department name to filter by
-	 * @returns {Promise<Array>} List of contacts matching the department
+	 * Get contact information from the leadership sheet
+	 * Sheet format: A=Name, B=Departments (multi-select, comma-separated), C=Email,
+	 * D=Discord Username, E=Discord User ID, F=Note
+	 * @param {string} [department] - Optional department to filter by. When omitted,
+	 *   all contacts are returned. Column B may hold multiple comma-separated
+	 *   departments; matching is case-insensitive against any of them.
+	 * @returns {Promise<Array>} List of contacts (filtered by department if provided)
 	 */
 	async getContacts(department) {
 		const spreadsheetId = process.env.LEADERSHIP_SHEET_ID;
@@ -915,10 +918,9 @@ class SheetsManager {
 		}
 
 		const rows = response.data.values || [];
-		
+
 		// Skip header row and map data
-		const contacts = rows.slice(1)
-			.filter(row => row[1] && row[1].trim() === department) // Filter by department (Column B)
+		let contacts = rows.slice(1)
 			.map(row => ({
 				name: row[0] || 'Unknown',
 				department: row[1] || '',
@@ -926,7 +928,18 @@ class SheetsManager {
 				discordUsername: row[3] || 'Unknown',
 				discordId: row[4] || '',
 				role: row[5] || 'Member',
+				note: row[5] || '',
 			}));
+
+		// Filter by department if one was provided (Column B is multi-select)
+		if (department) {
+			const target = department.toLowerCase().trim();
+			contacts = contacts.filter(contact =>
+				contact.department
+					.split(',')
+					.some(dept => dept.toLowerCase().trim() === target),
+			);
+		}
 
 		return contacts;
 	}

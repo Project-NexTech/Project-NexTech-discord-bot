@@ -199,40 +199,61 @@ function createEventsEmbed(events, department = null, currentPage = 1, totalPage
 }
 
 /**
- * Create an embed for contacts display
+ * Create embed(s) for contacts display.
+ * Contacts are chunked into groups of 25 to respect Discord's per-embed field limit,
+ * so this always returns an array of embeds.
  * @param {Array} contacts - Array of contact objects
- * @param {string} department - Department name
- * @returns {EmbedBuilder} Discord embed
+ * @returns {EmbedBuilder[]} Discord embeds
  */
-function createContactsEmbed(contacts, department) {
+function createContactsEmbed(contacts) {
 	const { EmbedBuilder } = require('discord.js');
 
-	const embed = new EmbedBuilder()
-		.setColor(0xFEE75C)
-		.setTitle(`${department} Leadership Contacts`)
-		.setTimestamp()
-		.setFooter({ text: 'Project NexTech Leadership' });
-
-	if (contacts.length === 0) {
-		embed.setDescription('No contacts found for this department.');
-		return embed;
+	if (!contacts || contacts.length === 0) {
+		const empty = new EmbedBuilder()
+			.setColor(0xFEE75C)
+			.setTitle('Leadership Contacts')
+			.setTimestamp()
+			.setFooter({ text: 'Project NexTech Leadership' })
+			.setDescription('No leadership contacts found.');
+		return [empty];
 	}
 
-	// Create fields for each contact
-	contacts.forEach(contact => {
-		const fieldValue = 
-			`**Role:** ${contact.role}\n` +
-			`**Discord:** <@${contact.discordId}> (${contact.discordUsername})\n` +
-			`**Email:** ${contact.email}`;
-		
-		embed.addFields({
-			name: `👤 ${contact.name}`,
-			value: fieldValue,
-			inline: false,
-		});
-	});
+	const FIELDS_PER_EMBED = 25;
+	const embeds = [];
 
-	return embed;
+	for (let i = 0; i < contacts.length; i += FIELDS_PER_EMBED) {
+		const chunk = contacts.slice(i, i + FIELDS_PER_EMBED);
+
+		const embed = new EmbedBuilder()
+			.setColor(0xFEE75C)
+			.setTitle('Leadership Contacts')
+			.setTimestamp()
+			.setFooter({ text: 'Project NexTech Leadership' });
+
+		chunk.forEach(contact => {
+			const departments = (contact.department || '')
+				.split(',')
+				.map(dept => dept.trim())
+				.filter(Boolean)
+				.join(', ') || 'None listed';
+
+			const fieldValue =
+				`**Departments:** ${departments}\n` +
+				`**Discord:** <@${contact.discordId}> (${contact.discordUsername})\n` +
+				`**Email:** ${contact.email}\n` +
+				`**Note:** ${contact.note || 'None'}`;
+
+			embed.addFields({
+				name: `👤 ${contact.name}`,
+				value: fieldValue,
+				inline: false,
+			});
+		});
+
+		embeds.push(embed);
+	}
+
+	return embeds;
 }
 
 /**
