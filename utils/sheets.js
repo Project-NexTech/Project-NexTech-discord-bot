@@ -907,7 +907,7 @@ class SheetsManager {
 		const response = await this.safeApiCall(
 			() => this.sheets.spreadsheets.values.get({
 				spreadsheetId,
-				range: 'Sheet1!A:F', // Adjust sheet name if needed
+				range: 'People!A:F',
 			}),
 			'getContacts',
 		);
@@ -955,7 +955,7 @@ class SheetsManager {
 		const response = await this.safeApiCall(
 			() => this.sheets.spreadsheets.values.get({
 				spreadsheetId,
-				range: 'Sheet1!A:F', // Adjust sheet name if needed
+				range: 'People!A:F',
 			}),
 			'getContactByName',
 		);
