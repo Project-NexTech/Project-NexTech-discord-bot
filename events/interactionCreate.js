@@ -1,8 +1,16 @@
 const { Collection, Events, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder, ChannelType } = require('discord.js');
+const { handleHourApprovalButton } = require('../utils/hourApprovalSync');
 
 module.exports = {
 	name: Events.InteractionCreate,
 	async execute(interaction) {
+		if (interaction.isButton()) {
+			const handled = await handleHourApprovalButton(interaction);
+			if (handled) {
+				return;
+			}
+		}
+
 		// Handle project group channel creation - cancel button
 		if (interaction.isButton() && interaction.customId.startsWith('cancel_cpg_')) {
 			const interactionId = interaction.customId.replace('cancel_cpg_', '');

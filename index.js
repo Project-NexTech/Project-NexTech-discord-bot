@@ -81,6 +81,7 @@ rl.on('line', (input) => {
 });
 
 client.commands = new Collection();
+client.hourApprovalPending = new Map();
 const foldersPath = path.join(__dirname, 'commands');
 const commandFolders = fs.readdirSync(foldersPath);
 client.cooldowns = new Collection();

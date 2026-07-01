@@ -1,10 +1,16 @@
 const { Events, EmbedBuilder, MessageFlags } = require('discord.js');
 const sheetsManager = require('../utils/sheets');
+const { handleHourApprovalModal } = require('../utils/hourApprovalSync');
 
 module.exports = {
 	name: Events.InteractionCreate,
 	async execute(interaction) {
 		if (!interaction.isModalSubmit()) return;
+
+		const hourApprovalHandled = await handleHourApprovalModal(interaction);
+		if (hourApprovalHandled) {
+			return;
+		}
 
 		// Handle nickname conflict resolution modal
 		if (interaction.customId.startsWith('nickname_conflict_')) {

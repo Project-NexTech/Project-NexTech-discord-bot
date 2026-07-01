@@ -212,38 +212,15 @@ Get the link to the Project NexTech Google Calendar.
 ---
 
 #### `/contact`
-View contact information for department leadership.
+View contact information for **all** leadership.
 
 **Cooldown:** 5 seconds  
-**Options:**
-- `department` (required) - Choose from:
-  - Engineering
-  - Mentoring
-  - Programming
-  - Physics/Math
-  - Natural Sciences
-  - Marketing
-  - Logistics
-  - Policy/Intl
-  - EC (not sure?)
+**Options:** None — lists every leadership contact.
 
 **Features:**
-- Fetches contacts from Google Sheets
-- Displays name, role, Discord mention, email
-- Formatted in clean embeds
-
----
-
-#### `/contactforevent`
-Get contact information for leadership of an upcoming event.
-
-**Cooldown:** 5 seconds
-
-**Features:**
-- Shows dropdown of upcoming events
-- Select an event to view department contacts
-- Displays event details and department leadership info
-- Interactive select menu with 60-second timeout
+- Fetches all contacts from the Leadership Google Sheet (`getContacts`)
+- Displays name, role, Discord mention, and email
+- Renders chunked embeds to respect Discord's 25-field-per-embed limit (`createContactsEmbed`)
 
 ### Events Commands
 
@@ -368,6 +345,37 @@ View the volunteer hours leaderboard.
 #### `/requesthours`
 Get the link to the volunteer hours request form.
 
+### Automated Hour Approval (optional)
+
+When enabled, the bot polls the **Hour Verification** sheet and DMs department leadership to approve or deny pending requests.
+
+**Environment variables:**
+- `HOUR_APPROVAL_ENABLED=true` — Turn on polling and DMs
+- `HOUR_APPROVAL_POLL_MINUTES=5` — How often to scan for new rows (default: 5)
+- `HOUR_APPROVAL_LOOKBACK_DAYS=30` — Only notify for requests dated within the last N days
+- `HOUR_APPROVAL_SESSION_HOURS=168` — How long Approve/Change/Deny buttons stay active (default: 7 days)
+- `HOUR_VERIFICATION_NOTES_COLUMN` — 0-based index of the Note column (default: `46`, i.e. column **AU**; auto-detected from the `Note` header in row 2)
+
+**Flow:**
+1. Volunteer submits hours (Google Form → Hour Verification row with pending verdict)
+2. Bot resolves the approver(s) from column F of that row — a single name, a comma-separated list, or a group label like `Anyone on EC/BD` (which expands to **all** EC/BD leadership contacts with a Discord ID)
+3. Each approver receives a separate DM with request details (Volunteer, Hours, Department, Date, Type, Link, Description) and **Approve** / **Change** / **Deny** buttons
+4. **Approve** → Sets `Approved` in the column under that confirmer's header; all sibling DMs (other approvers for the same row) are cancelled
+5. **Change** → Modal for revised hours → confirmer column set to `Changed`, and a `oldHours->newHours` note (e.g. `2->1.5`) written to the **Note** column (auto-detected from `Note` header in row 2, column AU by default). The bot does **not** write columns B or C directly — the `Changed` verdict plus note drive the sheet's own formulas.
+6. **Deny** → Modal for a reason → confirmer column set to `Denied`, reason text written to the **Note** column; all sibling DMs cancelled
+
+Only rows that newly appear **while the bot is running** are DMed. On startup the first scan records all currently-pending rows as a baseline (no DMs), so a restart never re-blasts the backlog. If buttons are never clicked, they expire after `HOUR_APPROVAL_SESSION_HOURS` and the DM is edited to link the exact sheet cell for manual action.
+
+**Self-DM prevention:** Leaders and EC members are never sent approval DMs for their own submitted hours. If the resolved approver's name matches the volunteer's name (case-insensitive), the DM is skipped.
+
+The assigned confirmer for each row is read from column F (configurable via `HOUR_VERIFICATION_CONFIRMER_FIELD_COLUMN`). Header rows (default: rows 1–2) must include a matching verdict column for each named confirmer. Group labels (`Anyone on the EC`, `Anyone on EC/BD`, etc.) expand to all matching contacts and write their verdict to column C.
+
+**Requirements:**
+- Leadership sheet must list Discord User IDs for department contacts
+- Approver must allow DMs from server members
+- Service account needs **write** access to the Events spreadsheet (Hour Verification tab)
+- Notified row numbers **and** live DM button sessions persist in `data/hour-approval-state.json` (not committed to git), so a restart keeps pending DM buttons working and never re-DMs the backlog
+
 **Cooldown:** 10 seconds
 
 **Features:**
@@ -433,6 +441,10 @@ INFO_SESSION_BANNER_URL=path_or_url_to_banner
 
 # Feature Flags
 CHECK_LEFT_USERS_ENABLED=false
+HOUR_APPROVAL_ENABLED=false
+HOUR_APPROVAL_POLL_MINUTES=5
+HOUR_APPROVAL_LOOKBACK_DAYS=30
+HOUR_APPROVAL_SESSION_HOURS=168
 ```
 
 4. **Set up Google Sheets credentials:**
@@ -485,6 +497,19 @@ The bot expects the following sheets:
   - Column A: Name
   - Column K: Total Hours
 
+- **Tab:** `Hour Verification`
+  - Column A: Name
+  - Column B: Hours (updated by sheet formulas, not the bot)
+  - Column C: Verdict (updated by sheet formulas, not the bot)
+  - Column D: Department
+  - Column E: Date (used for lookback filtering)
+  - Column F: Assigned confirmer name (must match a header column, or a group label)
+  - Column G: Link (optional URL shown in approval DM embed)
+  - Column H: Type of task
+  - Column I: Description
+  - Confirmer columns (headers in rows 1–2): each named confirmer has a column; per-row cells use `Approved`, `Changed`, or `Denied`
+  - Note column (AU / index 46 by default, auto-detected from `Note` header in row 2): written by the bot for Change (`oldHours->newHours`) and Deny (reason text)
+
 - **Tab:** `Membership Status`
   - Column A: Name (starts at row 10)
   - Column B: Status (Member, New Member, Paused, Not a Member, Unknown)
@@ -534,6 +559,7 @@ The bot integrates with Google Sheets for:
 ### Data Writing
 - **User verification** - Logs new member verification data
 - **Left users tracking** - Marks users who left the server (red background)
+- **Hour verification** - Updates the assigned confirmer's verdict column (and column B hours when changed) when leadership approves via DM
 
 ### Authentication
 Uses Google Service Account authentication with OAuth 2.0. The service account must have:
@@ -632,8 +658,7 @@ Project-NexTech-discord-bot/
 │   │   └── infosessions.js     # Display upcoming info session events
 │   ├── general/
 │   │   ├── calendar.js         # Get calendar link
-│   │   ├── contact.js          # View department contacts
-│   │   ├── contactforevent.js  # Get event contacts
+│   │   ├── contact.js          # View all leadership contacts
 │   │   └── verify.js           # Self-verification form
 │   └── hours/
 │       ├── hours.js            # View volunteer hours
@@ -648,6 +673,7 @@ Project-NexTech-discord-bot/
 ├── utils/
 │   ├── sheets.js               # Google Sheets API integration
 │   ├── calendarSync.js         # Calendar synchronization
+│   ├── hourApprovalSync.js     # Hour verification approval DMs
 │   ├── memberCache.js          # Persistent member cache system
 │   └── helpers.js              # Utility functions and embed builders
 ├── data/
@@ -674,6 +700,7 @@ Project-NexTech-discord-bot/
 - **deploy-commands.js** - Registers slash commands with Discord API
 - **utils/sheets.js** - Handles all Google Sheets operations
 - **utils/calendarSync.js** - Syncs iCal events to Discord scheduled events
+- **utils/hourApprovalSync.js** - Polls Hour Verification sheet and sends approval DMs to leadership
 - **utils/memberCache.js** - Persistent member data caching system
 - **utils/helpers.js** - Reusable functions and embed builders
 - **events/interactionCreate.js** - Handles slash commands, autocomplete, and button interactions (including nickname conflict resolution)
@@ -759,4 +786,4 @@ GPL-3.0 License
 Project NexTech Development Team (Daniel) + Claude Sonnet 4.5 and a few other AI models
 
 ---
-**Last Updated:** November 26, 2025
+**Last Updated:** June 30, 2026

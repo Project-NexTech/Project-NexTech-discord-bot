@@ -5,6 +5,7 @@ class SheetsManager {
 	constructor() {
 		this.auth = null;
 		this.sheets = null;
+		this._hourVerificationGid = undefined;
 	}
 
 	async initialize() {
@@ -230,6 +231,676 @@ class SheetsManager {
 	}
 
 	/**
+	 * Normalize a confirmer/header name for column lookup
+	 * @param {string} name
+	 * @returns {string}
+	 */
+	normalizeConfirmerName(name) {
+		return (name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+	}
+
+	/**
+	 * Whether a confirmer string refers to a group (EC/BD) rather than one person.
+	 * @param {string} confirmerName
+	 * @returns {boolean}
+	 */
+	isGroupConfirmerLabel(confirmerName) {
+		const norm = this.normalizeConfirmerName(confirmerName);
+		return norm.includes('ec/bd') || norm.includes('ec / bd')
+			|| (norm.includes('anyone') && (norm.includes('ec') || norm.includes('bd')))
+			|| norm.includes('executive committee') || norm.includes('board of directors');
+	}
+
+	/**
+	 * 0-based column index to A1 column letters (0 -> A)
+	 * @param {number} columnIndex
+	 * @returns {string}
+	 */
+	columnIndexToLetter(columnIndex) {
+		let index = columnIndex + 1;
+		let letters = '';
+
+		while (index > 0) {
+			const remainder = (index - 1) % 26;
+			letters = String.fromCharCode(65 + remainder) + letters;
+			index = Math.floor((index - 1) / 26);
+		}
+
+		return letters;
+	}
+
+	/**
+	 * Read Hour Verification tab including confirmer header columns
+	 * @returns {Promise<Object|null>}
+	 */
+	async fetchHourVerificationGrid() {
+		const eventsSheetId = process.env.EVENTS_SHEET_ID;
+		const sheetRange = process.env.HOUR_VERIFICATION_SHEET_RANGE || 'A1:ZZ';
+		const response = await this.safeApiCall(
+			() => this.sheets.spreadsheets.values.get({
+				spreadsheetId: eventsSheetId,
+				range: `'Hour Verification'!${sheetRange}`,
+			}),
+			'fetchHourVerificationGrid',
+		);
+
+		if (!response || !response.data) {
+			return null;
+		}
+
+		const rows = response.data.values || [];
+		const headerRowCount = this.getHourVerificationHeaderRowCount(rows);
+
+		return {
+			rows,
+			headerRowCount,
+			dateColumnIndex: this.resolveDateColumnIndex(rows, headerRowCount),
+			notesColumnIndex: this.resolveNotesColumnIndex(rows, headerRowCount),
+			confirmerColumnMap: this.buildConfirmerColumnMap(rows, headerRowCount),
+		};
+	}
+
+	/**
+	 * Find the column that holds each row's notes
+	 * @param {Array<Array<string>>} rows
+	 * @param {number} headerRowCount
+	 * @returns {number} 0-based column index (defaults to column AU)
+	 */
+	resolveNotesColumnIndex(rows, headerRowCount) {
+		const fromEnv = parseInt(process.env.HOUR_VERIFICATION_NOTES_COLUMN, 10);
+		if (!Number.isNaN(fromEnv) && fromEnv >= 0) {
+			return fromEnv;
+		}
+
+		const headerRows = rows.slice(0, headerRowCount);
+		const maxColumns = headerRows.reduce((max, row) => Math.max(max, row.length), 0);
+
+		for (let col = 0; col < maxColumns; col++) {
+			let label = '';
+			for (const headerRow of headerRows) {
+				const cell = headerRow[col] ? String(headerRow[col]).trim() : '';
+				if (cell) {
+					label = cell;
+				}
+			}
+
+			const key = this.normalizeConfirmerName(label);
+			if (key === 'notes' || key === 'note') {
+				return col;
+			}
+		}
+
+		return 46; // Default to column AU (override with HOUR_VERIFICATION_NOTES_COLUMN)
+	}
+
+	/**
+	 * @param {Array<Array<string>>} rows
+	 * @returns {number}
+	 */
+	getHourVerificationHeaderRowCount(rows) {
+		const fromEnv = parseInt(process.env.HOUR_VERIFICATION_HEADER_ROWS, 10);
+		if (!Number.isNaN(fromEnv) && fromEnv > 0) {
+			return fromEnv;
+		}
+		return 2;
+	}
+
+	/**
+	 * Normalize lookback days from env or caller
+	 * @param {number|string} lookbackDays
+	 * @returns {number}
+	 */
+	normalizeLookbackDays(lookbackDays) {
+		const parsed = typeof lookbackDays === 'number'
+			? lookbackDays
+			: parseInt(lookbackDays, 10);
+
+		if (!Number.isFinite(parsed) || parsed <= 0) {
+			return 30;
+		}
+
+		return Math.floor(parsed);
+	}
+
+	/**
+	 * Start of local calendar day for date comparisons
+	 * @param {Date} date
+	 * @returns {Date}
+	 */
+	toStartOfDay(date) {
+		const day = new Date(date.getTime());
+		day.setHours(0, 0, 0, 0);
+		return day;
+	}
+
+	/**
+	 * Whether a request date falls within the lookback window (inclusive)
+	 * @param {Date} requestDate
+	 * @param {number} lookbackDays
+	 * @returns {boolean}
+	 */
+	isDateWithinLookback(requestDate, lookbackDays) {
+		const effectiveLookback = this.normalizeLookbackDays(lookbackDays);
+		const cutoff = this.toStartOfDay(new Date());
+		cutoff.setDate(cutoff.getDate() - effectiveLookback);
+
+		const requestDay = this.toStartOfDay(requestDate);
+		return requestDay >= cutoff;
+	}
+
+	/**
+	 * Find the column that holds each row's event/request date
+	 * @param {Array<Array<string>>} rows
+	 * @param {number} headerRowCount
+	 * @returns {number} 0-based column index
+	 */
+	resolveDateColumnIndex(rows, headerRowCount) {
+		const fromEnv = parseInt(process.env.HOUR_VERIFICATION_DATE_COLUMN, 10);
+		if (!Number.isNaN(fromEnv) && fromEnv >= 0) {
+			return fromEnv;
+		}
+
+		const headerRows = rows.slice(0, headerRowCount);
+		const maxColumns = headerRows.reduce((max, row) => Math.max(max, row.length), 0);
+
+		for (let col = 0; col < maxColumns; col++) {
+			let label = '';
+			for (const headerRow of headerRows) {
+				const cell = headerRow[col] ? String(headerRow[col]).trim() : '';
+				if (cell) {
+					label = cell;
+				}
+			}
+
+			const key = this.normalizeConfirmerName(label);
+			if (key === 'date' || key === 'event date' || key === 'submission date') {
+				return col;
+			}
+		}
+
+		return 4; // Default column E
+	}
+
+	/**
+	 * Map confirmer names (from header rows) to 0-based column indices
+	 * @param {Array<Array<string>>} rows
+	 * @param {number} headerRowCount
+	 * @returns {Map<string, number>}
+	 */
+	buildConfirmerColumnMap(rows, headerRowCount) {
+		const map = new Map();
+		const headerRows = rows.slice(0, headerRowCount);
+		if (headerRows.length === 0) {
+			return map;
+		}
+
+		const maxColumns = headerRows.reduce((max, row) => Math.max(max, row.length), 0);
+
+		for (let col = 0; col < maxColumns; col++) {
+			let label = '';
+			for (const headerRow of headerRows) {
+				const cell = headerRow[col] ? String(headerRow[col]).trim() : '';
+				if (cell) {
+					label = cell;
+				}
+			}
+
+			if (!label) {
+				continue;
+			}
+
+			const key = this.normalizeConfirmerName(label);
+			if (!key || map.has(key) || this.isReservedHourVerificationHeader(key)) {
+				continue;
+			}
+
+			map.set(key, col);
+		}
+
+		return map;
+	}
+
+	/**
+	 * Header labels that are not confirmer verdict columns
+	 * @param {string} normalizedHeader
+	 * @returns {boolean}
+	 */
+	isReservedHourVerificationHeader(normalizedHeader) {
+		const reserved = new Set([
+			'date',
+			'event date',
+			'submission date',
+			'name',
+			'hours',
+			'hour',
+			'department',
+			'dept',
+			'type',
+			'description',
+			'desc',
+			'confirmer',
+			'verdict',
+			'status',
+			'notes',
+			'note',
+		]);
+
+		return reserved.has(normalizedHeader);
+	}
+
+	/**
+	 * Alternate header keys for group-style confirmer assignments
+	 * @param {string} normalizedConfirmer
+	 * @returns {string[]}
+	 */
+	getConfirmerColumnSearchKeys(normalizedConfirmer) {
+		const keys = [normalizedConfirmer];
+
+		if (normalizedConfirmer.includes('ec/bd') || normalizedConfirmer.includes('ec / bd')) {
+			keys.push(
+				'anyone on the ec/bd',
+				'anyone on ec/bd',
+				'anyone on the ec / bd',
+				'ec/bd',
+				'ec / bd',
+			);
+		}
+		else if (normalizedConfirmer.includes('anyone') && normalizedConfirmer.includes('ec')) {
+			keys.push(
+				'anyone on the ec',
+				'anyone on ec',
+				'ec',
+			);
+		}
+
+		return [...new Set(keys)];
+	}
+
+	/**
+	 * Fuzzy match group confirmer labels to sheet header columns
+	 * @param {string} normalizedConfirmer
+	 * @param {Map<string, number>} confirmerColumnMap
+	 * @returns {number|null}
+	 */
+	findConfirmerColumnByFuzzyHeader(normalizedConfirmer, confirmerColumnMap) {
+		if (normalizedConfirmer.includes('ec/bd') || normalizedConfirmer.includes('ec / bd')) {
+			for (const [headerName, columnIndex] of confirmerColumnMap.entries()) {
+				if (headerName.includes('ec') && headerName.includes('bd')) {
+					return columnIndex;
+				}
+			}
+		}
+
+		if (normalizedConfirmer.includes('anyone') && normalizedConfirmer.includes('ec')) {
+			for (const [headerName, columnIndex] of confirmerColumnMap.entries()) {
+				if (headerName.includes('bd')) {
+					continue;
+				}
+				if (headerName.includes('anyone') && headerName.includes('ec')) {
+					return columnIndex;
+				}
+				if (headerName === 'ec' || headerName === 'anyone on the ec' || headerName === 'anyone on ec') {
+					return columnIndex;
+				}
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Find the sheet column for a confirmer's Approved/Changed/Denied cell
+	 * @param {string} confirmerName
+	 * @param {Map<string, number>} confirmerColumnMap
+	 * @returns {number|null} 0-based column index
+	 */
+	resolveConfirmerColumnIndex(confirmerName, confirmerColumnMap) {
+		const normalized = this.normalizeConfirmerName(confirmerName);
+		if (!normalized) {
+			return null;
+		}
+
+		for (const key of this.getConfirmerColumnSearchKeys(normalized)) {
+			if (confirmerColumnMap.has(key)) {
+				return confirmerColumnMap.get(key);
+			}
+		}
+		const fuzzyMatch = this.findConfirmerColumnByFuzzyHeader(normalized, confirmerColumnMap);
+		if (fuzzyMatch !== null) {
+			return fuzzyMatch;
+		}
+		for (const [headerName, columnIndex] of confirmerColumnMap.entries()) {
+			if (normalized.includes(headerName) || headerName.includes(normalized)) {
+				return columnIndex;
+			}
+		}
+
+		// return this.findConfirmerColumnByFuzzyHeader(normalized, confirmerColumnMap);
+		return null;
+	}
+
+	/**
+	 * Column index (0-based) where each row stores the assigned confirmer name
+	 * @returns {number}
+	 */
+	getHourVerificationConfirmerFieldColumn() {
+		const fromEnv = parseInt(process.env.HOUR_VERIFICATION_CONFIRMER_FIELD_COLUMN, 10);
+		if (!Number.isNaN(fromEnv) && fromEnv >= 0) {
+			return fromEnv;
+		}
+		return 5; // Column F
+	}
+
+	/**
+	 * Get hour verification requests that are still awaiting approval
+	 * @param {number} lookbackDays - Only include requests with a date within this many days (default 30)
+	 * @returns {Promise<Object|null>} Object with array of pending requests, or null on sheet error
+	 */
+	async getNewHourVerificationRequests(lookbackDays = 30) {
+		const grid = await this.fetchHourVerificationGrid();
+		if (!grid) {
+			console.error('❌ Failed to get hour verification data from Google Sheets');
+			return null;
+		}
+
+		const { rows, headerRowCount, dateColumnIndex, confirmerColumnMap } = grid;
+		if (rows.length <= headerRowCount) {
+			return { requests: [] };
+		}
+
+		const effectiveLookback = this.normalizeLookbackDays(lookbackDays);
+		const confirmerFieldColumn = this.getHourVerificationConfirmerFieldColumn();
+
+		const pendingRequests = [];
+		for (let i = headerRowCount; i < rows.length; i++) {
+			const row = rows[i];
+			const rowName = row[0] ? row[0].trim() : '';
+			if (!rowName) continue;
+
+			const dateValue = row[dateColumnIndex] ?? '';
+			const parsedDate = this.parseHourVerificationDate(dateValue);
+			if (!parsedDate || !this.isDateWithinLookback(parsedDate, effectiveLookback)) continue;
+
+			const confirmer = row[confirmerFieldColumn] ? String(row[confirmerFieldColumn]).trim() : '';
+			if (!confirmer) continue;
+
+			// Group labels (EC/BD) and comma-separated multi-confirmers don't map to
+			// a single column.  Force null so we don't accidentally grab the wrong
+			// person's column via the substring match in resolveConfirmerColumnIndex.
+			const isGroupLabel = this.isGroupConfirmerLabel(confirmer);
+			const isMultiConfirmer = !isGroupLabel && confirmer.includes(',');
+			const confirmerColumnIndex = (isGroupLabel || isMultiConfirmer)
+				? null
+				: this.resolveConfirmerColumnIndex(confirmer, confirmerColumnMap);
+
+			let confirmerStatus;
+			if (confirmerColumnIndex !== null) {
+				confirmerStatus = row[confirmerColumnIndex] ? String(row[confirmerColumnIndex]).trim() : '';
+			}
+			else {
+				confirmerStatus = row[2] ? String(row[2]).trim() : '';
+			}
+
+			// Group labels and multi-confirmers may have any formula value in column C
+			// while still being unactioned.  Only skip if column C is definitively done.
+			// For single named confirmers use the normal pending check.
+			const statusNorm = confirmerStatus.trim().toLowerCase();
+			const isPending = (isGroupLabel || isMultiConfirmer)
+				? (statusNorm !== 'approved' && statusNorm !== 'changed' && statusNorm !== 'denied')
+				: this.isPendingConfirmerStatus(confirmerStatus);
+
+			if (!isPending) continue;
+
+			pendingRequests.push({
+				rowNumber: i + 1,
+				name: rowName,
+				hours: row[1] || 'N/A',
+				verdict: confirmerStatus || 'Pending',
+				department: row[3] || 'N/A',
+				confirmer,
+				confirmerColumnIndex,
+				link: row[6] ? String(row[6]).trim() : '',
+				date: dateValue || 'N/A',
+				type: row[7] || 'N/A',
+				description: row[8] || 'N/A',
+			});
+		}
+
+		pendingRequests.sort((a, b) => b.rowNumber - a.rowNumber);
+
+		return { requests: pendingRequests };
+	}
+
+	/**
+	 * Whether a confirmer column cell still needs action
+	 * @param {string} status - Raw cell value
+	 * @returns {boolean}
+	 */
+	isPendingConfirmerStatus(status) {
+		const normalized = (status || '').trim().toLowerCase();
+		if (!normalized || normalized === 'no action') {
+			return true;
+		}
+		if (normalized === 'approved' || normalized === 'changed' || normalized === 'denied') {
+			return false;
+		}
+		return normalized === 'pending' || normalized === 'unverified';
+	}
+
+	/**
+	 * @param {number} rowNumber
+	 * @param {number} confirmerColumnIndex
+	 * @returns {Promise<boolean>}
+	 */
+	async isConfirmerRowPending(rowNumber, confirmerColumnIndex) {
+		const grid = await this.fetchHourVerificationGrid();
+		if (!grid) {
+			return false;
+		}
+
+		const row = grid.rows[rowNumber - 1];
+		if (!row) {
+			return false;
+		}
+
+		const statusColumn = (confirmerColumnIndex !== null && confirmerColumnIndex !== undefined) ? confirmerColumnIndex : 2;
+		const status = row[statusColumn] ? String(row[statusColumn]).trim() : '';
+		return this.isPendingConfirmerStatus(status);
+	}
+
+	/**
+	 * Parse a date cell from the Hour Verification sheet
+	 * @param {string|number} dateValue - Raw cell value
+	 * @returns {Date|null} Parsed date, or null if unparseable
+	 */
+	parseHourVerificationDate(dateValue) {
+		if (dateValue === undefined || dateValue === null || dateValue === '') {
+			return null;
+		}
+
+		if (typeof dateValue === 'number') {
+			// Google Sheets serial date (days since 1899-12-30)
+			const utcMs = (dateValue - 25569) * 86400 * 1000;
+			const date = new Date(utcMs);
+			return Number.isNaN(date.getTime()) ? null : date;
+		}
+
+		const parsed = Date.parse(String(dateValue).trim());
+		if (Number.isNaN(parsed)) {
+			return null;
+		}
+		return new Date(parsed);
+	}
+
+	/**
+	 * Update the hours value (column B) for an hour verification row
+	 * @param {number} rowNumber - 1-indexed sheet row number
+	 * @param {number|string} hours - Hours to write
+	 * @returns {Promise<boolean>} Success status
+	 */
+	async updateHourVerificationHours(rowNumber, hours) {
+		const eventsSheetId = process.env.EVENTS_SHEET_ID;
+
+		const response = await this.safeApiCall(
+			() => this.sheets.spreadsheets.values.update({
+				spreadsheetId: eventsSheetId,
+				range: `'Hour Verification'!B${rowNumber}`,
+				valueInputOption: 'USER_ENTERED',
+				resource: {
+					values: [[hours]],
+				},
+			}),
+			'updateHourVerificationHours',
+		);
+
+		return Boolean(response);
+	}
+
+	/**
+	 * Write a note into the Notes column for an hour verification row
+	 * @param {number} rowNumber - 1-indexed sheet row number
+	 * @param {string} note - Text to write
+	 * @returns {Promise<boolean>} Success status
+	 */
+	async setHourVerificationNote(rowNumber, note) {
+		const grid = await this.fetchHourVerificationGrid();
+		if (!grid) {
+			return false;
+		}
+
+		const columnIndex = grid.notesColumnIndex;
+		if (columnIndex === null || columnIndex === undefined) {
+			console.warn('[HourVerification] No Notes column found — cannot write change note');
+			return false;
+		}
+
+		const eventsSheetId = process.env.EVENTS_SHEET_ID;
+		const columnLetter = this.columnIndexToLetter(columnIndex);
+
+		const response = await this.safeApiCall(
+			() => this.sheets.spreadsheets.values.update({
+				spreadsheetId: eventsSheetId,
+				range: `'Hour Verification'!${columnLetter}${rowNumber}`,
+				valueInputOption: 'USER_ENTERED',
+				resource: {
+					values: [[note]],
+				},
+			}),
+			'setHourVerificationNote',
+		);
+
+		return Boolean(response);
+	}
+
+	/**
+	 * Resolve and cache the gid (sheetId) of the Hour Verification tab
+	 * @returns {Promise<number|null>}
+	 */
+	async getHourVerificationSheetGid() {
+		if (this._hourVerificationGid !== undefined) {
+			return this._hourVerificationGid;
+		}
+
+		const eventsSheetId = process.env.EVENTS_SHEET_ID;
+		const response = await this.safeApiCall(
+			() => this.sheets.spreadsheets.get({
+				spreadsheetId: eventsSheetId,
+				fields: 'sheets.properties(sheetId,title)',
+			}),
+			'getHourVerificationSheetGid',
+		);
+
+		let gid = null;
+		if (response?.data?.sheets) {
+			const match = response.data.sheets.find(
+				sheet => sheet.properties?.title === 'Hour Verification',
+			);
+			if (match) {
+				gid = match.properties.sheetId;
+			}
+		}
+
+		// Cache even a null result to avoid repeated metadata fetches
+		this._hourVerificationGid = gid;
+		return gid;
+	}
+
+	/**
+	 * Build a direct link to a specific cell in the Hour Verification tab
+	 * @param {number} rowNumber - 1-indexed sheet row number
+	 * @param {number|null} columnIndex - 0-based column index (defaults to column A)
+	 * @returns {Promise<string>}
+	 */
+	async buildHourVerificationCellUrl(rowNumber, columnIndex) {
+		const eventsSheetId = process.env.EVENTS_SHEET_ID;
+		const base = `https://docs.google.com/spreadsheets/d/${eventsSheetId}/edit`;
+		const columnLetter = (columnIndex !== null && columnIndex !== undefined)
+			? this.columnIndexToLetter(columnIndex)
+			: 'A';
+		const range = `${columnLetter}${rowNumber}`;
+
+		const gid = await this.getHourVerificationSheetGid();
+		if (gid !== null && gid !== undefined) {
+			return `${base}#gid=${gid}&range=${range}`;
+		}
+		return `${base}#range=${range}`;
+	}
+
+	/**
+	 * Set Approved / Changed / Denied in the confirmer's column for a row
+	 * @param {number} rowNumber - 1-indexed sheet row number
+	 * @param {number} confirmerColumnIndex - 0-based column under the confirmer header
+	 * @param {string} status - Approved, Changed, or Denied
+	 * @param {number|string|null} hours - If set, updates column B first
+	 * @returns {Promise<boolean>} Success status
+	 */
+	async setConfirmerHourStatus(rowNumber, confirmerColumnIndex, status, hours = null, approverName = null) {
+		if (hours !== null && hours !== undefined) {
+			const hoursUpdated = await this.updateHourVerificationHours(rowNumber, hours);
+			if (!hoursUpdated) {
+				return false;
+			}
+		}
+
+		let finalColumnIndex = confirmerColumnIndex;
+		if (finalColumnIndex === null || finalColumnIndex === undefined) {
+			const grid = await this.fetchHourVerificationGrid();
+			if (grid && approverName) {
+				finalColumnIndex = this.resolveConfirmerColumnIndex(approverName, grid.confirmerColumnMap);
+			}
+			if (finalColumnIndex === null || finalColumnIndex === undefined) {
+				finalColumnIndex = 2; // Fallback to writing in the Verdict column (C)
+			}
+		}
+
+		const eventsSheetId = process.env.EVENTS_SHEET_ID;
+		const columnLetter = this.columnIndexToLetter(finalColumnIndex);
+
+		const response = await this.safeApiCall(
+			() => this.sheets.spreadsheets.values.update({
+				spreadsheetId: eventsSheetId,
+				range: `'Hour Verification'!${columnLetter}${rowNumber}`,
+				valueInputOption: 'USER_ENTERED',
+				resource: {
+					values: [[status]],
+				},
+			}),
+			'setConfirmerHourStatus',
+		);
+
+		return Boolean(response);
+	}
+
+	/**
+	 * Whether an Hour Verification verdict still needs approver action
+	 * @param {string} verdict - Raw verdict cell value
+	 * @returns {boolean}
+	 */
+	isPendingHourVerdict(verdict) {
+		return this.isPendingConfirmerStatus(verdict);
+	}
+
+	/**
 	 * Get upcoming events, optionally filtered by department
 	 * Sheet is organized by COLUMNS (each column = one event date)
 	 * Department mapping: 1=Engineering, 2=Mentoring, 3=Programming, 4=Physics/Math, 5=Natural Sciences
@@ -354,10 +1025,13 @@ class SheetsManager {
 	}
 
 	/**
-	 * Get contact information for a department
-	 * Sheet format: A=Name, B=Department, C=Email, D=Discord Username, E=Discord User ID, F=Role/Note
-	 * @param {string} department - Department name to filter by
-	 * @returns {Promise<Array>} List of contacts matching the department
+	 * Get contact information from the leadership sheet
+	 * Sheet format: A=Name, B=Departments (multi-select, comma-separated), C=Email,
+	 * D=Discord Username, E=Discord User ID, F=Note
+	 * @param {string} [department] - Optional department to filter by. When omitted,
+	 *   all contacts are returned. Column B may hold multiple comma-separated
+	 *   departments; matching is case-insensitive against any of them.
+	 * @returns {Promise<Array>} List of contacts (filtered by department if provided)
 	 */
 	async getContacts(department) {
 		const spreadsheetId = process.env.LEADERSHIP_SHEET_ID;
@@ -365,7 +1039,7 @@ class SheetsManager {
 		const response = await this.safeApiCall(
 			() => this.sheets.spreadsheets.values.get({
 				spreadsheetId,
-				range: 'Sheet1!A:F', // Adjust sheet name if needed
+				range: 'People!A:F',
 			}),
 			'getContacts',
 		);
@@ -376,10 +1050,58 @@ class SheetsManager {
 		}
 
 		const rows = response.data.values || [];
-		
+
 		// Skip header row and map data
+		let contacts = rows.slice(1)
+			.map(row => ({
+				name: row[0] || 'Unknown',
+				department: row[1] || '',
+				email: row[2] || 'No email listed',
+				discordUsername: row[3] || 'Unknown',
+				discordId: row[4] || '',
+				role: row[5] || 'Member',
+				note: row[5] || '',
+			}));
+
+		// Filter by department if one was provided (Column B is multi-select)
+		if (department) {
+			const target = department.toLowerCase().trim();
+			contacts = contacts.filter(contact =>
+				contact.department
+					.split(',')
+					.some(dept => dept.toLowerCase().trim() === target),
+			);
+		}
+
+		return contacts;
+	}
+
+	/**
+	 * Get leadership contact by name
+	 * @param {string} name - The name to search for
+	 * @returns {Promise<Object|null>} The contact data or null if not found
+	 */
+	async getContactByName(name) {
+		const spreadsheetId = process.env.LEADERSHIP_SHEET_ID;
+
+		const response = await this.safeApiCall(
+			() => this.sheets.spreadsheets.values.get({
+				spreadsheetId,
+				range: 'People!A:F',
+			}),
+			'getContactByName',
+		);
+
+		if (!response || !response.data) {
+			console.error('❌ Failed to get contacts data from Google Sheets for getContactByName');
+			return null;
+		}
+
+		const rows = response.data.values || [];
+		const normalizedSearchName = name.toLowerCase().trim();
+
+		// Map data
 		const contacts = rows.slice(1)
-			.filter(row => row[1] && row[1].trim() === department) // Filter by department (Column B)
 			.map(row => ({
 				name: row[0] || 'Unknown',
 				department: row[1] || '',
@@ -389,7 +1111,154 @@ class SheetsManager {
 				role: row[5] || 'Member',
 			}));
 
-		return contacts;
+		// Find contact by exact match (case-insensitive) or partial if exact fails
+		const contact = contacts.find(c => c.name.toLowerCase().trim() === normalizedSearchName);
+
+		if (contact && contact.discordId && contact.discordId.trim()) {
+			return contact;
+		}
+
+		// Fallback: partial match (handles "Name (Role)" format from the sheet dropdown)
+		const partialContact = contacts.find(c => normalizedSearchName.includes(c.name.toLowerCase().trim()));
+		if (partialContact && partialContact.discordId && partialContact.discordId.trim()) {
+			return partialContact;
+		}
+
+		return null;
+	}
+
+	/**
+	 * Pick a leadership contact with Discord ID from a department list
+	 * @param {Array} contacts
+	 * @returns {Object|null}
+	 */
+	pickLeadershipContact(contacts) {
+		const withDiscord = contacts.filter(contact => contact.discordId && contact.discordId.trim());
+		if (withDiscord.length === 0) {
+			return null;
+		}
+
+		const lead = withDiscord.find(contact => /lead/i.test(contact.role || ''));
+		return lead || withDiscord[0];
+	}
+
+	/**
+	 * Resolve who should receive the approval DM for a confirmer assignment
+	 * @param {string} confirmerName - Value from the sheet (person or group label)
+	 * @returns {Promise<Object|null>}
+	 */
+	async getApproverForConfirmer(confirmerName) {
+		const normalized = this.normalizeConfirmerName(confirmerName);
+		console.log(`[HourApproval/getApproverForConfirmer] Looking up confirmer="${confirmerName}" (normalized="${normalized}")`);
+
+		if (normalized.includes('ec/bd') || normalized.includes('ec / bd')) {
+			console.log('[HourApproval/getApproverForConfirmer] Matched EC/BD group label — fetching EC contacts');
+			const ecContact = this.pickLeadershipContact(await this.getContacts('EC'));
+			if (ecContact) {
+				console.log(`[HourApproval/getApproverForConfirmer] EC contact found: "${ecContact.name}" (${ecContact.discordId})`);
+				return ecContact;
+			}
+			console.warn('[HourApproval/getApproverForConfirmer] No EC contact with Discord ID found');
+		}
+
+		if (normalized.includes('anyone') && normalized.includes('ec')) {
+			console.log('[HourApproval/getApproverForConfirmer] Matched "anyone on the EC" label — fetching EC contacts');
+			const ecContact = this.pickLeadershipContact(await this.getContacts('EC'));
+			if (ecContact) {
+				console.log(`[HourApproval/getApproverForConfirmer] EC contact found: "${ecContact.name}" (${ecContact.discordId})`);
+				return ecContact;
+			}
+			console.warn('[HourApproval/getApproverForConfirmer] No EC contact with Discord ID found');
+		}
+
+		console.log(`[HourApproval/getApproverForConfirmer] Looking up by name: "${confirmerName}"`);
+		const contact = await this.getContactByName(confirmerName);
+		if (contact) {
+			console.log(`[HourApproval/getApproverForConfirmer] Name match found: "${contact.name}" (${contact.discordId})`);
+		}
+		else {
+			console.warn(`[HourApproval/getApproverForConfirmer] No match found in Leadership sheet for "${confirmerName}"`);
+		}
+		return contact;
+	}
+
+	/**
+	 * Return all Leadership contacts with Discord IDs whose role or department
+	 * indicates Board of Directors or Executive Committee membership.
+	 * @returns {Promise<Array>}
+	 */
+	async getECBDContacts() {
+		const [ecContacts, bdContacts] = await Promise.all([
+			this.getContacts('Executive Committee'),
+			this.getContacts('Board of Directors'),
+		]);
+
+		const seen = new Set();
+		const result = [];
+		for (const c of [...ecContacts, ...bdContacts]) {
+			if (c.discordId && c.discordId.trim() && !seen.has(c.discordId)) {
+				seen.add(c.discordId);
+				result.push(c);
+			}
+		}
+		return result;
+	}
+
+	/**
+	 * Resolve all approvers for a confirmer field value.
+	 * The field may be comma-separated (e.g. "Anyone on EC/BD, John Smith").
+	 * Group labels like "Anyone on EC/BD" expand to every EC/BD contact with a
+	 * Discord ID. Results are deduplicated by Discord ID.
+	 * @param {string} confirmerName
+	 * @returns {Promise<Array>} Array of contact objects (may be empty)
+	 */
+	async getApproversForConfirmer(confirmerName) {
+		// Split on comma, semicolon, or newline to handle different multi-select formats.
+		const parts = (confirmerName || '').split(/[,;\n]/).map(p => p.trim()).filter(Boolean);
+		const seen = new Set();
+		const approvers = [];
+
+		for (const part of parts) {
+			const partNorm = this.normalizeConfirmerName(part);
+			const isGroup = partNorm.includes('ec/bd') || partNorm.includes('ec / bd')
+				|| (partNorm.includes('anyone') && (partNorm.includes('ec') || partNorm.includes('bd')))
+				|| partNorm.includes('executive committee') || partNorm.includes('board of directors');
+
+			if (isGroup) {
+				const groupContacts = await this.getECBDContacts();
+				for (const contact of groupContacts) {
+					if (!seen.has(contact.discordId)) {
+						seen.add(contact.discordId);
+						approvers.push(contact);
+					}
+				}
+			}
+			else {
+				const contact = await this.getContactByName(part);
+				if (contact) {
+					if (!seen.has(contact.discordId)) {
+						seen.add(contact.discordId);
+						approvers.push(contact);
+					}
+				}
+				else {
+					console.warn(`[HourApproval] No Leadership contact found for confirmer "${part}"`);
+				}
+			}
+		}
+
+		// Resolve each approver's own confirmer column so that when they act, the
+		// bot writes to the right cell.  EC/BD group members have no named column
+		// (confirmerColumnIndex = null) and their verdict goes to column C.
+		const grid = await this.fetchHourVerificationGrid();
+		const colMap = grid ? grid.confirmerColumnMap : new Map();
+		for (const approver of approvers) {
+			approver.confirmerColumnIndex = this.isGroupConfirmerLabel(approver.name)
+				? null
+				: (this.resolveConfirmerColumnIndex(approver.name, colMap) ?? null);
+		}
+
+		return approvers;
 	}
 
 	/**
