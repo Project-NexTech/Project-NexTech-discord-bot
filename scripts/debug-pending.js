@@ -4,15 +4,15 @@ require('dotenv').config({ path: path.join(__dirname, '..', 'test.env'), overrid
 const sheetsManager = require('../utils/sheets');
 
 function loadNotifiedRows() {
-	const notifiedFilePath = path.join(__dirname, '..', 'data', 'hour-approval-notified.json');
+	const stateFilePath = path.join(__dirname, '..', 'data', 'hour-approval-state.json');
 	try {
-		if (fs.existsSync(notifiedFilePath)) {
-			const data = JSON.parse(fs.readFileSync(notifiedFilePath, 'utf8'));
+		if (fs.existsSync(stateFilePath)) {
+			const data = JSON.parse(fs.readFileSync(stateFilePath, 'utf8'));
 			return new Set(data.notifiedRowNumbers || []);
 		}
 	}
 	catch (e) {
-		console.error('Failed to load notified file', e);
+		console.error('Failed to load state file', e);
 	}
 	return new Set();
 }
@@ -30,8 +30,11 @@ function loadNotifiedRows() {
 		console.log('Notified rows count =', notified.size);
 		console.log('Pending requests count =', result.requests.length);
 		for (const req of result.requests) {
-			const approver = await sheetsManager.getApproverForConfirmer(req.confirmer);
-			console.log(`Row ${req.rowNumber}: confirmer='${req.confirmer}', confirmerColumnIndex=${req.confirmerColumnIndex}, verdict='${req.verdict}', inNotified=${notified.has(req.rowNumber)}, approver=${approver ? approver.name + '|' + approver.discordId : 'NULL'}`);
+			const approvers = await sheetsManager.getApproversForConfirmer(req.confirmer);
+			const approverStr = approvers.length
+				? approvers.map(a => `${a.name}|${a.discordId}|col=${a.confirmerColumnIndex}`).join('; ')
+				: 'NONE';
+			console.log(`Row ${req.rowNumber}: confirmer='${req.confirmer}', confirmerColumnIndex=${req.confirmerColumnIndex}, verdict='${req.verdict}', inNotified=${notified.has(req.rowNumber)}, approvers=[${approverStr}]`);
 		}
 		process.exit(0);
 	}

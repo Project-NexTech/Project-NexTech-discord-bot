@@ -78,19 +78,23 @@ module.exports = {
 		}
 
 		// Start automatic hour approval notifications (if enabled)
-		const hourApprovalEnabled = process.env.HOUR_APPROVAL_ENABLED === 'true';
+		const hourApprovalRaw = process.env.HOUR_APPROVAL_ENABLED;
+		const hourApprovalEnabled = hourApprovalRaw === 'true';
 		if (hourApprovalEnabled) {
 			try {
 				const pollMinutes = parseInt(process.env.HOUR_APPROVAL_POLL_MINUTES, 10) || 5;
-				startHourApprovalSync(client, pollMinutes);
+				await startHourApprovalSync(client, pollMinutes);
 				console.log('✅ Hour approval sync started');
 			}
 			catch (error) {
 				console.error('❌ Failed to start hour approval sync:', error.message);
 			}
 		}
+		else if (hourApprovalRaw === undefined || hourApprovalRaw === null || hourApprovalRaw === '') {
+			console.warn('⚠️ Hour approval sync is not running — HOUR_APPROVAL_ENABLED is not set in your .env file. Set it to true to enable DM notifications.');
+		}
 		else {
-			console.log('ℹ️ Hour approval sync is disabled (HOUR_APPROVAL_ENABLED=false)');
+			console.log('ℹ️ Hour approval sync is intentionally disabled (HOUR_APPROVAL_ENABLED=false)');
 		}
 
 		// Start periodic check for users who left the server (if enabled)

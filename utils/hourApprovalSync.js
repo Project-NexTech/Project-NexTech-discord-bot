@@ -11,40 +11,143 @@ const {
 } = require('discord.js');
 const sheetsManager = require('./sheets');
 
-const notifiedFilePath = path.join(__dirname, '..', 'data', 'hour-approval-notified.json');
+const stateFilePath = path.join(__dirname, '..', 'data', 'hour-approval-state.json');
 const DEFAULT_LOOKBACK_DAYS = 30;
 const DEFAULT_SESSION_HOURS = 168; // 7 days
 
+// Rows we have already notified for (or recorded as baseline at startup). Persisted
+// so a restart never re-DMs the same request. Sessions for live DM buttons are
+// persisted alongside so they survive a restart too.
+let notifiedRows = new Set();
+// Whether the first sync after process start has run. The first sync records all
+// existing pending rows as baseline WITHOUT notifying, so a restart never blasts
+// DMs for the backlog — only rows that newly appear while running are notified.
+let baselineSeeded = false;
+let pollIntervalMinutes = 5; // updated by startHourApprovalSync
+
 /**
- * @returns {Set<number>}
+ * @returns {{ notifiedRowNumbers: number[], sessions: Object }}
  */
-function loadNotifiedRows() {
+function readStateFile() {
 	try {
-		if (fs.existsSync(notifiedFilePath)) {
-			const data = JSON.parse(fs.readFileSync(notifiedFilePath, 'utf8'));
-			return new Set(data.notifiedRowNumbers || []);
+		if (fs.existsSync(stateFilePath)) {
+			const data = JSON.parse(fs.readFileSync(stateFilePath, 'utf8'));
+			return {
+				notifiedRowNumbers: data.notifiedRowNumbers || [],
+				sessions: data.sessions || {},
+			};
 		}
 	}
 	catch (error) {
-		console.error('[HourApproval] Error loading notified rows:', error);
+		console.error('[HourApproval] Error loading state file:', error);
 	}
-	return new Set();
+	return { notifiedRowNumbers: [], sessions: {} };
 }
 
 /**
- * @param {Set<number>} notifiedRows
+ * Persist notified rows and the serializable parts of the live sessions.
+ * @param {import('discord.js').Client} client
  */
-function saveNotifiedRows(notifiedRows) {
+function persistState(client) {
+	// sessions: { [rowNumber]: { [approverId]: sessionData } }
+	const sessions = {};
+	if (client.hourApprovalPending) {
+		for (const [rowNumber, rowSessions] of client.hourApprovalPending) {
+			sessions[rowNumber] = {};
+			for (const [approverId, session] of rowSessions) {
+				sessions[rowNumber][approverId] = {
+					request: session.request,
+					confirmerColumnIndex: session.confirmerColumnIndex,
+					approverId: session.approverId,
+					approverSheetName: session.approverSheetName,
+					messageId: session.messageId,
+					channelId: session.channelId,
+					expiresAt: session.expiresAt,
+				};
+			}
+		}
+	}
+
 	try {
 		fs.writeFileSync(
-			notifiedFilePath,
-			JSON.stringify({ notifiedRowNumbers: [...notifiedRows] }, null, 2),
+			stateFilePath,
+			JSON.stringify({ notifiedRowNumbers: [...notifiedRows], sessions }, null, 2),
 			'utf8',
 		);
 	}
 	catch (error) {
-		console.error('[HourApproval] Error saving notified rows:', error);
+		console.error('[HourApproval] Error saving state file:', error);
 	}
+}
+
+// Seed the in-memory notified set from disk at module load so any early
+// persistState (e.g. from a button handler) never clobbers existing state.
+notifiedRows = new Set(readStateFile().notifiedRowNumbers || []);
+
+/**
+ * Rebuild live button sessions from disk after a restart and re-arm their
+ * expiry timers. Sessions whose deadline already passed are expired immediately
+ * (the DM is edited with a sheet link) instead of being left dangling.
+ * @param {import('discord.js').Client} client
+ */
+async function restoreHourApprovalSessions(client) {
+	const state = readStateFile();
+	notifiedRows = new Set(state.notifiedRowNumbers || []);
+
+	if (!client.hourApprovalPending) {
+		client.hourApprovalPending = new Map();
+	}
+
+	const now = Date.now();
+	let restored = 0;
+	let expired = 0;
+
+	for (const [rowKey, rowData] of Object.entries(state.sessions || {})) {
+		const rowNumber = parseInt(rowKey, 10);
+
+		// Detect old single-session format (direct `request` property means pre-multi-approver format).
+		// Those sessions used button IDs without an approverId suffix and can't be routed
+		// anymore, so skip them rather than trying to restore.
+		if (rowData && typeof rowData === 'object' && rowData.request) {
+			console.log(`[HourApproval] Skipping old-format session for row ${rowNumber} (button IDs changed)`);
+			continue;
+		}
+
+		const rowSessions = new Map();
+		client.hourApprovalPending.set(rowNumber, rowSessions);
+
+		for (const [approverId, session] of Object.entries(rowData || {})) {
+			rowSessions.set(approverId, { ...session, timeoutId: null });
+
+			const remaining = (session.expiresAt || 0) - now;
+			if (remaining <= 0) {
+				await expireHourApprovalSession(client, rowNumber, approverId);
+				expired++;
+			}
+			else {
+				const timeoutId = setTimeout(() => {
+					expireHourApprovalSession(client, rowNumber, approverId);
+				}, remaining);
+				const entry = rowSessions.get(approverId);
+				if (entry) {
+					entry.timeoutId = timeoutId;
+				}
+				restored++;
+			}
+		}
+
+		if (rowSessions.size === 0) {
+			client.hourApprovalPending.delete(rowNumber);
+		}
+	}
+
+	if (restored > 0 || expired > 0) {
+		console.log(
+			`[HourApproval] Restored ${restored} active session(s), expired ${expired} stale session(s) on startup`,
+		);
+	}
+
+	persistState(client);
 }
 
 /**
@@ -63,7 +166,7 @@ function buildHourApprovalEmbed(request) {
 			{ name: 'Department', value: request.department, inline: true },
 			{ name: 'Date', value: String(request.date), inline: true },
 			{ name: 'Type', value: String(request.type), inline: true },
-			{ name: 'Sheet Row', value: String(request.rowNumber), inline: true },
+			{ name: 'Link', value: request.link || 'none', inline: true },
 			{ name: 'Description', value: request.description || 'No description provided' },
 		)
 		.setFooter({ text: 'Project NexTech Hour Verification' })
@@ -74,22 +177,22 @@ function buildHourApprovalEmbed(request) {
  * @param {number} rowNumber
  * @returns {ActionRowBuilder}
  */
-function buildApprovalButtons(rowNumber) {
+function buildApprovalButtons(rowNumber, approverId) {
 	return new ActionRowBuilder()
 		.addComponents(
 			new ButtonBuilder()
-				.setCustomId(`hour_approve_${rowNumber}`)
+				.setCustomId(`hour_approve_${rowNumber}_${approverId}`)
 				.setLabel('Approve')
 				.setStyle(ButtonStyle.Success)
 				.setEmoji('✅'),
 			new ButtonBuilder()
-				.setCustomId(`hour_change_${rowNumber}`)
+				.setCustomId(`hour_change_${rowNumber}_${approverId}`)
 				.setLabel('Change')
 				.setStyle(ButtonStyle.Primary)
 				.setEmoji('✏️'),
 			new ButtonBuilder()
-				.setCustomId(`hour_decline_${rowNumber}`)
-				.setLabel('Decline')
+				.setCustomId(`hour_deny_${rowNumber}_${approverId}`)
+				.setLabel('Deny')
 				.setStyle(ButtonStyle.Danger)
 				.setEmoji('❌'),
 		);
@@ -116,10 +219,12 @@ function parseHoursInput(value) {
 /**
  * @param {import('discord.js').ButtonInteraction|import('discord.js').ModalSubmitInteraction} interaction
  * @param {number} rowNumber
+ * @param {string} approverId - Discord user ID encoded in the button/modal customId
  * @returns {Promise<Object|null>} Pending session, or null if already replied
  */
-async function getHourApprovalSession(interaction, rowNumber) {
-	if (!interaction.client.hourApprovalPending?.has(rowNumber)) {
+async function getHourApprovalSession(interaction, rowNumber, approverId) {
+	const rowSessions = interaction.client.hourApprovalPending?.get(rowNumber);
+	if (!rowSessions?.has(approverId)) {
 		await interaction.reply({
 			content: '❌ This approval request has expired or was already handled.',
 			ephemeral: true,
@@ -127,9 +232,7 @@ async function getHourApprovalSession(interaction, rowNumber) {
 		return null;
 	}
 
-	const pending = interaction.client.hourApprovalPending.get(rowNumber);
-
-	if (interaction.user.id !== pending.approverId) {
+	if (interaction.user.id !== approverId) {
 		await interaction.reply({
 			content: '❌ Only the assigned confirmer can use these controls.',
 			ephemeral: true,
@@ -137,7 +240,49 @@ async function getHourApprovalSession(interaction, rowNumber) {
 		return null;
 	}
 
-	return pending;
+	return rowSessions.get(approverId);
+}
+
+/**
+ * Cancel all active sessions for a row after one approver acts (or the request
+ * is no longer pending). Edits every sibling DM to remove buttons and show the
+ * outcome; skips the acting approver's own DM (that is handled by the caller).
+ * @param {import('discord.js').Client} client
+ * @param {number} rowNumber
+ * @param {string|null} actingApproverId - Discord ID of the approver who acted (their DM is already handled)
+ * @param {string|null} siblingStatusText - Summary shown in sibling DMs (null → generic "no longer pending")
+ */
+async function cancelAllSessionsForRow(client, rowNumber, actingApproverId, siblingStatusText) {
+	const rowSessions = client.hourApprovalPending?.get(rowNumber);
+	if (!rowSessions) return;
+
+	for (const [approverId, session] of rowSessions) {
+		if (session.timeoutId) clearTimeout(session.timeoutId);
+
+		if (approverId !== actingApproverId) {
+			try {
+				const channel = await client.channels.fetch(session.channelId);
+				const dmMessage = await channel.messages.fetch(session.messageId);
+				const desc = siblingStatusText
+					? `This request was already actioned: **${siblingStatusText}**. No further action needed.`
+					: 'This request is no longer pending. No further action needed.';
+				const embed = EmbedBuilder.from(dmMessage.embeds[0])
+					.setColor(0x95A5A6)
+					.setTitle('✅ Already Handled')
+					.setDescription(desc);
+				await dmMessage.edit({ embeds: [embed], components: [] });
+			}
+			catch (err) {
+				console.error(
+					`[HourApproval] Failed to cancel sibling DM for row ${rowNumber}, approver ${approverId}:`,
+					err.message,
+				);
+			}
+		}
+	}
+
+	client.hourApprovalPending.delete(rowNumber);
+	persistState(client);
 }
 
 /**
@@ -150,73 +295,112 @@ async function isHourRequestStillPending(rowNumber, confirmerColumnIndex) {
 }
 
 /**
+ * Send approval DMs to all resolved approvers for a request.
+ * Sessions are stored as Map<rowNumber, Map<approverId, session>>.
  * @param {import('discord.js').Client} client
  * @param {Object} request
- * @param {Object} approverContact
- * @param {Set<number>} notifiedRows
+ * @param {Array} approvers - array of contact objects from getApproversForConfirmer
  */
-async function notifyApprover(client, request, approverContact, notifiedRows) {
-	try {
-		const approverUser = await client.users.fetch(approverContact.discordId);
-		const embed = buildHourApprovalEmbed(request);
-		const components = [buildApprovalButtons(request.rowNumber)];
+async function notifyApprovers(client, request, approvers) {
+	if (!client.hourApprovalPending) {
+		client.hourApprovalPending = new Map();
+	}
 
-		const dmMessage = await approverUser.send({ embeds: [embed], components });
+	if (!client.hourApprovalPending.has(request.rowNumber)) {
+		client.hourApprovalPending.set(request.rowNumber, new Map());
+	}
+	const rowSessions = client.hourApprovalPending.get(request.rowNumber);
 
-		if (!client.hourApprovalPending) {
-			client.hourApprovalPending = new Map();
+	const sessionHours = parseFloat(process.env.HOUR_APPROVAL_SESSION_HOURS) || DEFAULT_SESSION_HOURS;
+	const timeoutMs = sessionHours * 60 * 60 * 1000;
+	const expiresAt = Date.now() + timeoutMs;
+
+	const volunteerNameNorm = (request.name || '').toLowerCase().trim();
+	let sent = 0;
+	for (const approverContact of approvers) {
+		if ((approverContact.name || '').toLowerCase().trim() === volunteerNameNorm) {
+			console.log(`[HourApproval] Skipping self-approval DM for row ${request.rowNumber}: ${approverContact.name} is the volunteer`);
+			continue;
 		}
 
-		const sessionHours = parseInt(process.env.HOUR_APPROVAL_SESSION_HOURS, 10) || DEFAULT_SESSION_HOURS;
-		const timeoutMs = sessionHours * 60 * 60 * 1000;
+		try {
+			const approverUser = await client.users.fetch(approverContact.discordId);
+			const embed = buildHourApprovalEmbed(request);
+			const components = [buildApprovalButtons(request.rowNumber, approverContact.discordId)];
+			const dmMessage = await approverUser.send({ embeds: [embed], components });
 
-		const timeoutId = setTimeout(() => {
-			expireHourApprovalSession(client, request.rowNumber, dmMessage);
-		}, timeoutMs);
+			const timeoutId = setTimeout(() => {
+				expireHourApprovalSession(client, request.rowNumber, approverContact.discordId);
+			}, timeoutMs);
 
-		client.hourApprovalPending.set(request.rowNumber, {
-			request,
-			approverId: approverContact.discordId,
-			approverSheetName: approverContact.name,
-			messageId: dmMessage.id,
-			channelId: dmMessage.channel.id,
-			timeoutId,
-		});
+			rowSessions.set(approverContact.discordId, {
+				request,
+				// Store the column index specific to this approver (null → overall Verdict col).
+				confirmerColumnIndex: approverContact.confirmerColumnIndex ?? null,
+				approverId: approverContact.discordId,
+				approverSheetName: approverContact.name,
+				messageId: dmMessage.id,
+				channelId: dmMessage.channel.id,
+				expiresAt,
+				timeoutId,
+			});
 
-		notifiedRows.add(request.rowNumber);
-		saveNotifiedRows(notifiedRows);
-
-		console.log(
-			`[HourApproval] Sent approval DM for row ${request.rowNumber} `
-			+ `(${request.name}) to ${approverContact.name}`,
-		);
+			console.log(`[HourApproval] New request — row ${request.rowNumber} "${request.name}" — DM sent to ${approverContact.name}`);
+			sent++;
+		}
+		catch (error) {
+			console.error(
+				`[HourApproval] Failed to DM ${approverContact.name} for row ${request.rowNumber}:`,
+				error.message,
+			);
+		}
 	}
-	catch (error) {
-		console.error(
-			`[HourApproval] Failed to DM approver for row ${request.rowNumber}:`,
-			error.message,
-		);
-	}
+
+	notifiedRows.add(request.rowNumber);
+	persistState(client);
 }
 
 /**
+ * Expire a session whose DM buttons were never clicked: drop the in-memory
+ * session and edit the original DM to remove the (now-dead) buttons and point
+ * the approver at the exact sheet cell to action manually.
  * @param {import('discord.js').Client} client
  * @param {number} rowNumber
- * @param {import('discord.js').Message} dmMessage
  */
-async function expireHourApprovalSession(client, rowNumber, dmMessage) {
-	const pending = client.hourApprovalPending?.get(rowNumber);
+async function expireHourApprovalSession(client, rowNumber, approverId) {
+	const rowSessions = client.hourApprovalPending?.get(rowNumber);
+	const pending = rowSessions?.get(approverId);
 	if (!pending) {
 		return;
 	}
 
-	client.hourApprovalPending.delete(rowNumber);
+	if (pending.timeoutId) {
+		clearTimeout(pending.timeoutId);
+	}
+	rowSessions.delete(approverId);
+	if (rowSessions.size === 0) {
+		client.hourApprovalPending.delete(rowNumber);
+	}
+	// Keep the row in notifiedRows so the next sync does not re-DM it.
+	persistState(client);
 
 	try {
+		const channel = await client.channels.fetch(pending.channelId);
+		const dmMessage = await channel.messages.fetch(pending.messageId);
+
+		const cellUrl = await sheetsManager.buildHourVerificationCellUrl(
+			pending.request.rowNumber,
+			pending.confirmerColumnIndex,
+		);
+
 		const embed = EmbedBuilder.from(dmMessage.embeds[0])
 			.setColor(0x95A5A6)
 			.setTitle('⌛ Hour Approval Expired')
-			.setDescription('This request was not actioned in time. You can still update the sheet manually.');
+			.setDescription(
+				'These buttons expired before this request was actioned. '
+				+ 'Please update the verdict directly in the sheet:\n'
+				+ `[Open row ${pending.request.rowNumber} in the Hour Verification sheet](${cellUrl})`,
+			);
 
 		await dmMessage.edit({ embeds: [embed], components: [] });
 	}
@@ -238,15 +422,20 @@ async function syncHourApprovalRequests(client) {
 			return;
 		}
 
-		const notifiedRows = loadNotifiedRows();
-		let notifiedCount = 0;
+		const isBaseline = !baselineSeeded;
+		let baselineCount = 0;
 
 		for (const request of result.requests) {
-			if (notifiedRows.has(request.rowNumber)) {
+			if (notifiedRows.has(request.rowNumber) || client.hourApprovalPending?.has(request.rowNumber)) {
 				continue;
 			}
 
-			if (client.hourApprovalPending?.has(request.rowNumber)) {
+			// On the first sync after (re)start, record every pre-existing pending
+			// row as baseline without DMing. Only rows that newly appear while the
+			// bot is running get a notification.
+			if (isBaseline) {
+				notifiedRows.add(request.rowNumber);
+				baselineCount++;
 				continue;
 			}
 
@@ -254,29 +443,28 @@ async function syncHourApprovalRequests(client) {
 				? request.confirmer.trim()
 				: null;
 
-			if (!confirmer) {
+			if (!confirmer) continue;
+
+			const approvers = await sheetsManager.getApproversForConfirmer(confirmer);
+
+			if (approvers.length === 0) {
 				console.warn(
-					`[HourApproval] Row ${request.rowNumber} has no confirmer — cannot find approver`,
+					`[HourApproval] No leadership contacts with Discord IDs found for confirmer "${confirmer}" `
+					+ `(row ${request.rowNumber}). Ensure members have Discord IDs on the Leadership sheet.`,
 				);
 				continue;
 			}
 
-			const approver = await sheetsManager.getApproverForConfirmer(confirmer);
-
-			if (!approver) {
-				console.warn(
-					`[HourApproval] No leadership contact with Discord ID for confirmer "${confirmer}" `
-					+ `(row ${request.rowNumber}). For group labels like "Anyone on the EC", add EC members with Discord IDs on the Leadership sheet.`,
-				);
-				continue;
-			}
-
-			await notifyApprover(client, request, approver, notifiedRows);
-			notifiedCount++;
+			await notifyApprovers(client, request, approvers);
 		}
 
-		if (notifiedCount > 0) {
-			console.log(`[HourApproval] Sync completed — sent ${notifiedCount} new notification(s)`);
+		if (isBaseline) {
+			baselineSeeded = true;
+			persistState(client);
+			console.log(
+				`[HourApproval] Startup baseline established — ${baselineCount} existing pending row(s) recorded. `
+				+ `Watching for new submissions (checking every ${pollIntervalMinutes} minute(s)).`,
+			);
 		}
 	}
 	catch (error) {
@@ -288,8 +476,13 @@ async function syncHourApprovalRequests(client) {
  * @param {import('discord.js').Client} client
  * @param {number} intervalMinutes
  */
-function startHourApprovalSync(client, intervalMinutes) {
+async function startHourApprovalSync(client, intervalMinutes) {
+	pollIntervalMinutes = intervalMinutes;
 	console.log(`[HourApproval] Starting automatic hour approval sync (every ${intervalMinutes} minutes)`);
+
+	// Rebuild any live button sessions from disk so DMs sent before a restart
+	// remain actionable (and stale ones get expired) before the first sync runs.
+	await restoreHourApprovalSessions(client);
 
 	syncHourApprovalRequests(client);
 
@@ -304,20 +497,19 @@ function startHourApprovalSync(client, intervalMinutes) {
  * @param {number} rowNumber
  */
 function clearHourApprovalSession(client, rowNumber) {
-	const pending = client.hourApprovalPending?.get(rowNumber);
-	if (!pending) {
-		return;
-	}
+	const rowSessions = client.hourApprovalPending?.get(rowNumber);
+	if (!rowSessions) return;
 
-	if (pending.timeoutId) {
-		clearTimeout(pending.timeoutId);
+	for (const [, session] of rowSessions) {
+		if (session.timeoutId) clearTimeout(session.timeoutId);
 	}
 
 	client.hourApprovalPending.delete(rowNumber);
+	persistState(client);
 }
 
 /**
- * Handle Approve / Decline button clicks on hour approval DMs
+ * Handle Approve / Deny button clicks on hour approval DMs
  * @param {import('discord.js').ButtonInteraction} interaction
  * @returns {Promise<boolean>} True if this handler consumed the interaction
  */
@@ -326,17 +518,18 @@ async function handleHourApprovalButton(interaction) {
 		return false;
 	}
 
-	const approveMatch = interaction.customId.match(/^hour_approve_(\d+)$/);
-	const declineMatch = interaction.customId.match(/^hour_decline_(\d+)$/);
-	const changeMatch = interaction.customId.match(/^hour_change_(\d+)$/);
-	const match = approveMatch || declineMatch || changeMatch;
+	const approveMatch = interaction.customId.match(/^hour_approve_(\d+)_(\d+)$/);
+	const denyMatch = interaction.customId.match(/^hour_deny_(\d+)_(\d+)$/);
+	const changeMatch = interaction.customId.match(/^hour_change_(\d+)_(\d+)$/);
+	const match = approveMatch || denyMatch || changeMatch;
 
 	if (!match) {
 		return false;
 	}
 
 	const rowNumber = parseInt(match[1], 10);
-	const pending = await getHourApprovalSession(interaction, rowNumber);
+	const approverId = match[2];
+	const pending = await getHourApprovalSession(interaction, rowNumber, approverId);
 	if (!pending) {
 		return true;
 	}
@@ -344,12 +537,12 @@ async function handleHourApprovalButton(interaction) {
 	if (changeMatch) {
 		const currentHours = pending.request.hours === 'N/A' ? '' : String(pending.request.hours);
 		const modal = new ModalBuilder()
-			.setCustomId(`hour_change_${rowNumber}`)
+			.setCustomId(`hour_change_${rowNumber}_${approverId}`)
 			.setTitle('Change Requested Hours');
 
 		const hoursInput = new TextInputBuilder()
 			.setCustomId('new_hours')
-			.setLabel('Hours to approve')
+			.setLabel('Revised hours (recorded in Notes column)')
 			.setStyle(TextInputStyle.Short)
 			.setPlaceholder('e.g. 2 or 1.5')
 			.setValue(currentHours)
@@ -361,11 +554,30 @@ async function handleHourApprovalButton(interaction) {
 		return true;
 	}
 
+	if (denyMatch) {
+		const modal = new ModalBuilder()
+			.setCustomId(`hour_deny_${rowNumber}_${approverId}`)
+			.setTitle('Deny Hour Request');
+
+		const reasonInput = new TextInputBuilder()
+			.setCustomId('deny_reason')
+			.setLabel('Reason for denying (added to Notes)')
+			.setStyle(TextInputStyle.Paragraph)
+			.setPlaceholder('e.g. request too old, duplicate request, inaccurate request, etc.')
+			.setRequired(true)
+			.setMaxLength(500);
+
+		modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+		await interaction.showModal(modal);
+		return true;
+	}
+
+	// Only Approve reaches here
 	await interaction.deferUpdate();
 
-	const confirmerColumnIndex = pending.request.confirmerColumnIndex;
+	const confirmerColumnIndex = pending.confirmerColumnIndex;
 	if (!await isHourRequestStillPending(rowNumber, confirmerColumnIndex)) {
-		clearHourApprovalSession(interaction.client, rowNumber);
+		await cancelAllSessionsForRow(interaction.client, rowNumber, approverId, null);
 		await interaction.editReply({
 			content: '❌ This request is no longer pending in the sheet.',
 			embeds: interaction.message.embeds,
@@ -374,23 +586,20 @@ async function handleHourApprovalButton(interaction) {
 		return true;
 	}
 
-	const isApprove = Boolean(approveMatch);
 	const approverName = pending.approverSheetName
 		|| interaction.member?.displayName
 		|| interaction.user.displayName
 		|| interaction.user.username;
-	const sheetStatus = isApprove ? 'Approved' : 'Denied';
 	const success = await sheetsManager.setConfirmerHourStatus(
 		rowNumber,
 		confirmerColumnIndex,
-		sheetStatus,
+		'Approved',
 		null,
 		approverName,
 	);
 
-	clearHourApprovalSession(interaction.client, rowNumber);
-
 	if (!success) {
+		await cancelAllSessionsForRow(interaction.client, rowNumber, approverId, null);
 		await interaction.editReply({
 			content: '❌ Failed to update Google Sheets. Please update the row manually.',
 			embeds: interaction.message.embeds,
@@ -399,14 +608,12 @@ async function handleHourApprovalButton(interaction) {
 		return true;
 	}
 
+	await cancelAllSessionsForRow(interaction.client, rowNumber, approverId, `Approved by ${approverName}`);
+
 	const embed = EmbedBuilder.from(interaction.message.embeds[0])
-		.setColor(isApprove ? 0x57F287 : 0xED4245)
-		.setTitle(isApprove ? '✅ Hour Request Approved' : '❌ Hour Request Declined')
-		.setDescription(
-			isApprove
-				? `Set **Approved** in **${pending.request.confirmer}**'s column (by **${approverName}**).`
-				: `Set **Denied** in **${pending.request.confirmer}**'s column.`,
-		);
+		.setColor(0x57F287)
+		.setTitle('✅ Hour Request Approved')
+		.setDescription(`Set **Approved** (by **${approverName}**).`);
 
 	await interaction.editReply({
 		content: null,
@@ -414,9 +621,7 @@ async function handleHourApprovalButton(interaction) {
 		components: [],
 	});
 
-	console.log(
-		`[HourApproval] Row ${rowNumber} ${isApprove ? 'approved' : 'denied'} by ${interaction.user.tag}`,
-	);
+	console.log(`[HourApproval] Row ${rowNumber} approved by ${interaction.user.tag}`);
 
 	return true;
 }
@@ -431,34 +636,26 @@ async function handleHourApprovalModal(interaction) {
 		return false;
 	}
 
-	const match = interaction.customId.match(/^hour_change_(\d+)$/);
+	const changeMatch = interaction.customId.match(/^hour_change_(\d+)_(\d+)$/);
+	const denyMatch = interaction.customId.match(/^hour_deny_(\d+)_(\d+)$/);
+	const match = changeMatch || denyMatch;
 	if (!match) {
 		return false;
 	}
 
 	const rowNumber = parseInt(match[1], 10);
-	const pending = await getHourApprovalSession(interaction, rowNumber);
+	const approverId = match[2];
+	const pending = await getHourApprovalSession(interaction, rowNumber, approverId);
 	if (!pending) {
-		return true;
-	}
-
-	const newHours = parseHoursInput(interaction.fields.getTextInputValue('new_hours'));
-	if (newHours === null) {
-		await interaction.reply({
-			content: '❌ Enter a valid number of hours greater than zero (e.g. `2` or `1.5`).',
-			ephemeral: true,
-		});
 		return true;
 	}
 
 	await interaction.deferReply({ ephemeral: true });
 
-	const confirmerColumnIndex = pending.request.confirmerColumnIndex;
+	const confirmerColumnIndex = pending.confirmerColumnIndex;
 	if (!await isHourRequestStillPending(rowNumber, confirmerColumnIndex)) {
-		clearHourApprovalSession(interaction.client, rowNumber);
-		await interaction.editReply({
-			content: '❌ This request is no longer pending in the sheet.',
-		});
+		await cancelAllSessionsForRow(interaction.client, rowNumber, approverId, null);
+		await interaction.editReply({ content: '❌ This request is no longer pending in the sheet.' });
 		return true;
 	}
 
@@ -466,57 +663,115 @@ async function handleHourApprovalModal(interaction) {
 		|| interaction.member?.displayName
 		|| interaction.user.displayName
 		|| interaction.user.username;
-	const success = await sheetsManager.setConfirmerHourStatus(
-		rowNumber,
-		confirmerColumnIndex,
-		'Changed',
-		newHours,
-		approverName,
-	);
 
-	if (!success) {
+	if (changeMatch) {
+		const newHours = parseHoursInput(interaction.fields.getTextInputValue('new_hours'));
+		if (newHours === null) {
+			await interaction.editReply({
+				content: '❌ Enter a valid number of hours greater than zero (e.g. `2` or `1.5`).',
+			});
+			return true;
+		}
+
+		const formattedHours = String(newHours);
+		const oldHours = String(pending.request.hours);
+		const noteText = `${oldHours}->${formattedHours}`;
+
+		// Mark the confirmer's verdict as "Changed" WITHOUT touching column B or C.
+		// The `oldHours->newHours` note plus the "Changed" verdict drive the sheet's
+		// own formulas, which update columns B and C automatically.
+		const statusSuccess = await sheetsManager.setConfirmerHourStatus(
+			rowNumber,
+			confirmerColumnIndex,
+			'Changed',
+			null,
+			approverName,
+		);
+
+		if (!statusSuccess) {
+			await interaction.editReply({ content: '❌ Failed to update Google Sheets. Please update the row manually.' });
+			return true;
+		}
+
+		const noteSuccess = await sheetsManager.setHourVerificationNote(rowNumber, noteText);
+		if (!noteSuccess) {
+			console.warn(`[HourApproval] Row ${rowNumber}: verdict set to Changed but failed to write the Note column`);
+		}
+
+		const statusSummary = `Changed (${noteText}) by ${approverName}`;
+		await cancelAllSessionsForRow(interaction.client, rowNumber, approverId, statusSummary);
+
+		try {
+			const channel = await interaction.client.channels.fetch(pending.channelId);
+			const dmMessage = await channel.messages.fetch(pending.messageId);
+			const sourceEmbed = EmbedBuilder.from(dmMessage.embeds[0])
+				.setColor(0x57F287)
+				.setTitle('✏️ Hours Changed')
+				.setDescription(
+					`Set **Changed** by **${approverName}** `
+					+ `and wrote **${noteText}** to the Note column. Hour(s) number update automatically.`,
+				);
+			await dmMessage.edit({ embeds: [sourceEmbed], components: [] });
+		}
+		catch (error) {
+			console.error(`[HourApproval] Failed to edit DM after change for row ${rowNumber}:`, error.message);
+		}
+
+		const noteWarning = noteSuccess ? '' : ' (⚠️ could not write the Note column — update it manually)';
 		await interaction.editReply({
-			content: '❌ Failed to update Google Sheets. Please update the row manually.',
+			content: `✅ Set **Changed** and wrote **${noteText}** to the Note column.${noteWarning}`,
 		});
+
+		console.log(`[HourApproval] Row ${rowNumber} changed (${noteText}) by ${interaction.user.tag}`);
 		return true;
 	}
 
-	clearHourApprovalSession(interaction.client, rowNumber);
+	// Deny with reason
+	const reason = interaction.fields.getTextInputValue('deny_reason').trim();
 
-	const formattedHours = Number.isInteger(newHours) ? String(newHours) : String(newHours);
+	const statusSuccess = await sheetsManager.setConfirmerHourStatus(
+		rowNumber,
+		confirmerColumnIndex,
+		'Denied',
+		null,
+		approverName,
+	);
+
+	if (!statusSuccess) {
+		await interaction.editReply({ content: '❌ Failed to update Google Sheets. Please update the row manually.' });
+		return true;
+	}
+
+	const noteSuccess = await sheetsManager.setHourVerificationNote(rowNumber, reason);
+	if (!noteSuccess) {
+		console.warn(`[HourApproval] Row ${rowNumber}: verdict set to Denied but failed to write the Note column`);
+	}
+
+	const statusSummary = `Denied by ${approverName}`;
+	await cancelAllSessionsForRow(interaction.client, rowNumber, approverId, statusSummary);
 
 	try {
 		const channel = await interaction.client.channels.fetch(pending.channelId);
 		const dmMessage = await channel.messages.fetch(pending.messageId);
-		const originalEmbed = dmMessage.embeds[0];
-		const updatedFields = originalEmbed.fields.map(field =>
-			field.name === 'Hours'
-				? { name: field.name, value: formattedHours, inline: field.inline }
-				: field,
-		);
-
-		const sourceEmbed = EmbedBuilder.from(originalEmbed)
-			.setColor(0x57F287)
-			.setTitle('✅ Hours Changed')
+		const sourceEmbed = EmbedBuilder.from(dmMessage.embeds[0])
+			.setColor(0xED4245)
+			.setTitle('❌ Hour Request Denied')
 			.setDescription(
-				`Set **Changed** with **${formattedHours}** hour(s) in **${pending.request.confirmer}**'s column (by **${approverName}**).`,
-			)
-			.setFields(updatedFields);
-
+				`Set **Denied** by **${approverName}**. `
+				+ `Reason: ${reason}`,
+			);
 		await dmMessage.edit({ embeds: [sourceEmbed], components: [] });
 	}
 	catch (error) {
-		console.error(`[HourApproval] Failed to edit DM after change for row ${rowNumber}:`, error.message);
+		console.error(`[HourApproval] Failed to edit DM after denial for row ${rowNumber}:`, error.message);
 	}
 
+	const noteWarning = noteSuccess ? '' : ' (⚠️ could not write the Note column — update it manually)';
 	await interaction.editReply({
-		content: `✅ Set **Changed** with **${formattedHours}** hour(s) in the sheet.`,
+		content: `✅ Set **Denied** and wrote reason to the Note column.${noteWarning}`,
 	});
 
-	console.log(
-		`[HourApproval] Row ${rowNumber} approved with ${formattedHours} hour(s) by ${interaction.user.tag}`,
-	);
-
+	console.log(`[HourApproval] Row ${rowNumber} denied by ${interaction.user.tag}: ${reason}`);
 	return true;
 }
 
@@ -527,6 +782,5 @@ module.exports = {
 	handleHourApprovalModal,
 	buildHourApprovalEmbed,
 	clearHourApprovalSession,
-	loadNotifiedRows,
-	saveNotifiedRows,
+	restoreHourApprovalSessions,
 };
