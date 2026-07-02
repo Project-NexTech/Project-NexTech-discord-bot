@@ -318,7 +318,9 @@ async function notifyApprovers(client, request, approvers) {
 	const volunteerNameNorm = (request.name || '').toLowerCase().trim();
 	let sent = 0;
 	for (const approverContact of approvers) {
-		if ((approverContact.name || '').toLowerCase().trim() === volunteerNameNorm) {
+		// Strip quoted nicknames (e.g. 'Pryya "Sompan" Surarujiroj' → 'Pryya Surarujiroj') before comparing.
+		const approverNameNorm = (approverContact.name || '').replace(/"[^"]*"/g, '').replace(/\s+/g, ' ').toLowerCase().trim();
+		if (approverNameNorm === volunteerNameNorm) {
 			console.log(`[HourApproval] Skipping self-approval DM for row ${request.rowNumber}: ${approverContact.name} is the volunteer`);
 			continue;
 		}
