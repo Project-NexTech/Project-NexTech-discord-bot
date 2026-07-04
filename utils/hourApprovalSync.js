@@ -316,7 +316,6 @@ async function notifyApprovers(client, request, approvers) {
 	const expiresAt = Date.now() + timeoutMs;
 
 	const volunteerNameNorm = (request.name || '').toLowerCase().trim();
-	let sent = 0;
 	for (const approverContact of approvers) {
 		// Strip quoted nicknames (e.g. 'Pryya "Sompan" Surarujiroj' → 'Pryya Surarujiroj') before comparing.
 		const approverNameNorm = (approverContact.name || '').replace(/"[^"]*"/g, '').replace(/\s+/g, ' ').toLowerCase().trim();
@@ -348,7 +347,6 @@ async function notifyApprovers(client, request, approvers) {
 			});
 
 			console.log(`[HourApproval] New request — row ${request.rowNumber} "${request.name}" — DM sent to ${approverContact.name}`);
-			sent++;
 		}
 		catch (error) {
 			console.error(

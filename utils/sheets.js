@@ -334,10 +334,9 @@ class SheetsManager {
 	}
 
 	/**
-	 * @param {Array<Array<string>>} rows
 	 * @returns {number}
 	 */
-	getHourVerificationHeaderRowCount(rows) {
+	getHourVerificationHeaderRowCount() {
 		const fromEnv = parseInt(process.env.HOUR_VERIFICATION_HEADER_ROWS, 10);
 		if (!Number.isNaN(fromEnv) && fromEnv > 0) {
 			return fromEnv;

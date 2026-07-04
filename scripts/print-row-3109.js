@@ -44,7 +44,8 @@ const sheetsManager = require('../utils/sheets');
 		console.log('overallVerdict (col C) =', overallVerdict);
 		if (confirmerColumnIndex !== null) {
 			console.log('confirmerColumnValue =', row[confirmerColumnIndex] || '');
-		} else {
+		}
+		else {
 			console.log('No specific confirmer column found; fallback verdict used.');
 		}
 
