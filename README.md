@@ -299,7 +299,7 @@ View volunteer hours for yourself or another member.
 - For each request, displays:
   - Request number (row in sheet)
   - Hours requested
-  - Approval status (✅ Approved, ⏳ Pending, ❓ Other)
+  - Approval status (✅ Approved, ⏳ Unverified, ❓ Other)
   - Department
   - Date
   - Type of task
@@ -311,7 +311,7 @@ View volunteer hours for yourself or another member.
 - Data pulled from Google Sheets columns:
   - Column A: Name (for matching)
   - Column B: Hours
-  - Column C: Verdict (Approved/Denied/Pending)
+  - Column C: Verdict (Approved/Denied/Unverified)
   - Column D: Department
   - Column E: Date
   - Column H: Type of task
@@ -357,7 +357,7 @@ When enabled, the bot polls the **Hour Verification** sheet and DMs department l
 - `HOUR_VERIFICATION_NOTES_COLUMN` — 0-based index of the Note column (default: `46`, i.e. column **AU**; auto-detected from the `Note` header in row 2)
 
 **Flow:**
-1. Volunteer submits hours (Google Form → Hour Verification row with pending verdict)
+1. Volunteer submits hours (Google Form → Hour Verification row with `Unverified` verdict in column C)
 2. Bot resolves the approver(s) from column F of that row — a single name, a comma-separated list, or a group label like `Anyone on EC/BD` (which expands to **all** EC/BD leadership contacts with a Discord ID)
 3. Each approver receives a separate DM with request details (Volunteer, Hours, Department, Date, Type, Link, Description) and **Approve** / **Change** / **Deny** buttons
 4. **Approve** → Sets `Approved` in the column under that confirmer's header; all sibling DMs (other approvers for the same row) are cancelled

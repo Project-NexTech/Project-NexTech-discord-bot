@@ -678,13 +678,9 @@ class SheetsManager {
 	 */
 	isPendingConfirmerStatus(status) {
 		const normalized = (status || '').trim().toLowerCase();
-		if (!normalized || normalized === 'no action') {
-			return true;
-		}
-		if (normalized === 'approved' || normalized === 'changed' || normalized === 'denied') {
-			return false;
-		}
-		return normalized === 'pending' || normalized === 'unverified';
+		// Only the three terminal verdicts are considered handled — everything else
+		// (empty, 'Unverified', 'Pending', 'no action', any unknown formula result) is pending.
+		return normalized !== 'approved' && normalized !== 'changed' && normalized !== 'denied';
 	}
 
 	/**
