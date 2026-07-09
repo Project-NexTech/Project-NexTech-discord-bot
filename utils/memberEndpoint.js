@@ -1,20 +1,25 @@
 /**
- * HTTP endpoint for the member onboarding Apps Script.
+ * HTTP endpoint for Apps Script triggers (member onboarding, reimbursement requests).
  *
  * Add this to your existing discord.js bot. Call setupMemberEndpoint(client)
  * after your bot is logged in.
  *
  * Environment variables required:
- *   ONBOARD_PORT           - port to listen on (e.g. 25599 for PebbleHost)
- *   ONBOARD_SECRET         - shared secret; must match DISCORD_BOT_SECRET in Apps Script
- *   STAFF_CHAT_CHANNEL_ID  - channel ID where /members/report posts its summary embed
+ *   ONBOARD_PORT             - port to listen on (e.g. 25599 for PebbleHost)
+ *   ONBOARD_SECRET           - shared secret; must match DISCORD_BOT_SECRET in Apps Script
+ *   STAFF_CHAT_CHANNEL_ID    - channel ID where /members/report posts its summary embed
+ *   REIMBURSEMENT_THREAD_ID  - thread ID where /reimbursement/submit posts its embed
  *
  * Routes:
- *   POST /members/add     - triggers role sync; body ignored (cap 8 KB)
- *   POST /members/report  - posts an onboarding summary embed to the staff channel
- *                           (JSON body, cap 16 KB)
+ *   POST /members/add          - triggers role sync; body ignored (cap 8 KB)
+ *   POST /members/report       - posts an onboarding summary embed to the staff channel
+ *                                (JSON body, cap 16 KB)
+ *   POST /reimbursement/submit - posts a reimbursement request embed to the reimbursement
+ *                                thread, pinging EC_ROLE_ID and BD_ROLE_ID (JSON body, cap 16 KB)
+ *                                Expected body: { name, discordUsername, amount, evidenceLink,
+ *                                purchaseDate, purchaseType, receiptMethod, details }
  *
- * Both routes use Bearer auth with ONBOARD_SECRET.
+ * All routes use Bearer auth with ONBOARD_SECRET.
  *
  * Response (success): 200 { ok: true, ... }
  * Response (failure): 4xx/5xx { ok: false, error: "..." }
@@ -23,6 +28,7 @@
 const http = require('http');
 const { EmbedBuilder } = require('discord.js');
 const { performRoleSync } = require('../commands/admin/syncroles');
+const { postReimbursementRequest } = require('./reimbursementNotify');
 
 function setupMemberEndpoint(client) {
 	const port = parseInt(process.env.ONBOARD_PORT, 10);
@@ -40,7 +46,8 @@ function setupMemberEndpoint(client) {
 
 		const isAdd = req.url === '/members/add';
 		const isReport = req.url === '/members/report';
-		if (!isAdd && !isReport) {
+		const isReimbursement = req.url === '/reimbursement/submit';
+		if (!isAdd && !isReport && !isReimbursement) {
 			return sendJson(res, 404, { ok: false, error: 'Not found' });
 		}
 
@@ -51,8 +58,8 @@ function setupMemberEndpoint(client) {
 			return sendJson(res, 401, { ok: false, error: 'Unauthorized' });
 		}
 
-		// /members/add ignores the body; /members/report parses JSON up to 16 KB.
-		const sizeCap = isReport ? 16384 : 8192;
+		// /members/add ignores the body; the other routes parse JSON up to 16 KB.
+		const sizeCap = isAdd ? 8192 : 16384;
 		let body = '';
 		let tooLarge = false;
 		req.on('data', chunk => {
@@ -79,17 +86,33 @@ function setupMemberEndpoint(client) {
 				return;
 			}
 
-			// /members/report
-			let report;
+			// /members/report and /reimbursement/submit both take a JSON body.
+			let payload;
 			try {
-				report = JSON.parse(body);
+				payload = JSON.parse(body);
 			}
 			catch {
 				return sendJson(res, 400, { ok: false, error: 'Invalid JSON' });
 			}
 
+			if (isReimbursement) {
+				if (!payload.name) {
+					return sendJson(res, 400, { ok: false, error: 'Missing required field: name' });
+				}
+				try {
+					await postReimbursementRequest(client, payload);
+					sendJson(res, 200, { ok: true });
+				}
+				catch (e) {
+					console.error('[onboard] postReimbursementRequest failed:', e);
+					sendJson(res, 500, { ok: false, error: String(e.message || e) });
+				}
+				return;
+			}
+
+			// /members/report
 			try {
-				await handlePostReport(client, report);
+				await handlePostReport(client, payload);
 				sendJson(res, 200, { ok: true });
 			}
 			catch (e) {

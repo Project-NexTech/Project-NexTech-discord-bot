@@ -125,6 +125,31 @@ class MemberCache {
 	}
 
 	/**
+	 * Find a cached member by Discord username (case-insensitive exact match).
+	 * Tolerates a leading "@" and a legacy "#1234" discriminator suffix.
+	 * @param {string} username
+	 * @returns {Object|null} Cached member data or null
+	 */
+	findByUsername(username) {
+		if (!username) return null;
+
+		let normalized = username.trim();
+		if (normalized.startsWith('@')) normalized = normalized.slice(1);
+		const hashIndex = normalized.indexOf('#');
+		if (hashIndex !== -1) normalized = normalized.slice(0, hashIndex);
+		normalized = normalized.toLowerCase();
+
+		if (!normalized) return null;
+
+		for (const member of this.cache.values()) {
+			if (member.username && member.username.toLowerCase() === normalized) {
+				return member;
+			}
+		}
+		return null;
+	}
+
+	/**
 	 * Get cache size
 	 * @returns {number}
 	 */

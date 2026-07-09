@@ -445,6 +445,12 @@ HOUR_APPROVAL_ENABLED=false
 HOUR_APPROVAL_POLL_MINUTES=5
 HOUR_APPROVAL_LOOKBACK_DAYS=30
 HOUR_APPROVAL_SESSION_HOURS=168
+
+# Apps Script webhook endpoint (member onboarding + reimbursement requests)
+ONBOARD_PORT=25599
+ONBOARD_SECRET=your_shared_secret
+BD_ROLE_ID=role_id
+REIMBURSEMENT_THREAD_ID=thread_id
 ```
 
 4. **Set up Google Sheets credentials:**
@@ -632,6 +638,40 @@ Uses Google Service Account authentication with OAuth 2.0. The service account m
 - Shows countdown timer in Discord timestamp format
 - Resets after cooldown expires
 
+### Apps Script Webhook Endpoint (`utils/memberEndpoint.js`)
+A lightweight HTTP server (no Express) that Google Apps Script triggers POST to for events the bot needs to react to instantly rather than by polling a sheet. Started from `index.js` after login, gated on `ONBOARD_PORT`/`ONBOARD_SECRET` — both must be set or the endpoint is disabled.
+
+- **Auth:** every route requires `Authorization: Bearer <ONBOARD_SECRET>` (constant-time comparison).
+- **Body cap:** 8 KB for `/members/add`, 16 KB for the JSON routes.
+- **Routes:**
+  - `POST /members/add` — triggers a role sync; body ignored.
+  - `POST /members/report` — posts an onboarding summary embed to `STAFF_CHAT_CHANNEL_ID`.
+  - `POST /reimbursement/submit` — posts a reimbursement request embed to the thread configured via `REIMBURSEMENT_THREAD_ID`, pinging `EC_ROLE_ID` and `BD_ROLE_ID` (see below).
+- **Responses:** `200 { ok: true }` on success; `4xx`/`5xx` `{ ok: false, error: "..." }` on failure (400 malformed JSON/missing required field, 401 bad/missing token, 413 body too large, 500 bot-side failure e.g. misconfigured thread).
+
+#### Reimbursement Request Notifications
+When the Reimbursement Request Google Form is submitted, an Apps Script trigger attached to the form POSTs the response to `/reimbursement/submit` (see `utils/reimbursementNotify.js`). The bot posts an embed to `REIMBURSEMENT_THREAD_ID`, pinging `EC_ROLE_ID` and `BD_ROLE_ID`, with:
+
+- Requester name, amount, date of purchase, type of purchase, method of receipt, evidence link (or `none`), and additional details (or `None provided`)
+- **Discord mention resolution:** the submitted `discordUsername` is looked up against the member cache (case-insensitive exact match, tolerant of a leading `@` or legacy `#1234` discriminator). If a match is found, the embed shows a clickable `@mention` with the raw submitted text in parentheses; otherwise it falls back to plain unlinked text (e.g. typo, or the member joined too recently to be cached yet)
+
+Expected JSON payload from the Apps Script trigger:
+```json
+{
+  "name": "Jane Doe",
+  "discordUsername": "janedoe",
+  "amount": "42.50",
+  "evidenceLink": "https://drive.google.com/example",
+  "purchaseDate": "2026-06-30",
+  "purchaseType": "Supplies",
+  "receiptMethod": "E-transfer",
+  "details": "Poster board for info session"
+}
+```
+Only `name` is required (400 if missing/empty) — the Google Form enforces the rest as required questions, so the bot applies no fallback defaults for them.
+
+The Apps Script itself (which reads the Form response and POSTs it here) is not part of this repo's runtime — see `docs/apps-script-reimbursement-trigger.gs` for the script to paste into the Form's Script Editor.
+
 ## TODO
 
 ### `/syncprojectgroup` (planned)
@@ -675,6 +715,8 @@ Project-NexTech-discord-bot/
 │   ├── calendarSync.js         # Calendar synchronization
 │   ├── hourApprovalSync.js     # Hour verification approval DMs
 │   ├── memberCache.js          # Persistent member cache system
+│   ├── memberEndpoint.js       # HTTP server for Apps Script webhooks (onboarding, reimbursement)
+│   ├── reimbursementNotify.js  # Builds/posts the reimbursement request Discord embed
 │   └── helpers.js              # Utility functions and embed builders
 ├── data/
 │   ├── member-cache.json       # Cached member data (auto-generated)
@@ -702,6 +744,8 @@ Project-NexTech-discord-bot/
 - **utils/calendarSync.js** - Syncs iCal events to Discord scheduled events
 - **utils/hourApprovalSync.js** - Polls Hour Verification sheet and sends approval DMs to leadership
 - **utils/memberCache.js** - Persistent member data caching system
+- **utils/memberEndpoint.js** - HTTP server for Apps Script webhooks (member onboarding, reimbursement requests)
+- **utils/reimbursementNotify.js** - Posts the reimbursement request embed to Discord when the webhook fires
 - **utils/helpers.js** - Reusable functions and embed builders
 - **events/interactionCreate.js** - Handles slash commands, autocomplete, and button interactions (including nickname conflict resolution)
 
