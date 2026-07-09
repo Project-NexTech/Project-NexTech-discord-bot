@@ -247,8 +247,7 @@ class SheetsManager {
 	isGroupConfirmerLabel(confirmerName) {
 		const norm = this.normalizeConfirmerName(confirmerName);
 		return norm.includes('ec/bd') || norm.includes('ec / bd')
-			|| (norm.includes('anyone') && (norm.includes('ec') || norm.includes('bd')))
-			|| norm.includes('executive committee') || norm.includes('board of directors');
+			|| (norm.includes('anyone') && (norm.includes('ec') || norm.includes('bd')));
 	}
 
 	/**
@@ -1214,10 +1213,7 @@ class SheetsManager {
 		const approvers = [];
 
 		for (const part of parts) {
-			const partNorm = this.normalizeConfirmerName(part);
-			const isGroup = partNorm.includes('ec/bd') || partNorm.includes('ec / bd')
-				|| (partNorm.includes('anyone') && (partNorm.includes('ec') || partNorm.includes('bd')))
-				|| partNorm.includes('executive committee') || partNorm.includes('board of directors');
+			const isGroup = this.isGroupConfirmerLabel(part);
 
 			if (isGroup) {
 				const groupContacts = await this.getECBDContacts();
@@ -1248,9 +1244,19 @@ class SheetsManager {
 		const grid = await this.fetchHourVerificationGrid();
 		const colMap = grid ? grid.confirmerColumnMap : new Map();
 		for (const approver of approvers) {
-			approver.confirmerColumnIndex = this.isGroupConfirmerLabel(approver.name)
-				? null
-				: (this.resolveConfirmerColumnIndex(approver.name, colMap) ?? null);
+			if (this.isGroupConfirmerLabel(approver.name)) {
+				approver.confirmerColumnIndex = null;
+				continue;
+			}
+
+			const resolvedColumnIndex = this.resolveConfirmerColumnIndex(approver.name, colMap);
+			if (resolvedColumnIndex === null) {
+				console.warn(
+					`[HourApproval] Could not resolve a confirmer column for "${approver.name}" — `
+					+ 'falling back to column C (overall Verdict). Check for a typo or mismatched header in the Hour Verification sheet.',
+				);
+			}
+			approver.confirmerColumnIndex = resolvedColumnIndex ?? null;
 		}
 
 		return approvers;
