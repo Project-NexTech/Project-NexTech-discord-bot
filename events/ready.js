@@ -3,6 +3,7 @@ const sheetsManager = require('../utils/sheets');
 const { startCalendarSync } = require('../utils/calendarSync');
 const { startHourApprovalSync } = require('../utils/hourApprovalSync');
 const memberCache = require('../utils/memberCache');
+const welcomeMessages = require('../utils/welcomeMessages');
 
 module.exports = {
 	name: Events.ClientReady,
@@ -13,6 +14,9 @@ module.exports = {
 		// Load persistent member cache from disk
 		console.log('📂 Loading member cache from disk...');
 		memberCache.load();
+
+		// Load pending welcome-ping messages so they can still be cleaned up after a restart
+		welcomeMessages.load();
 		
 		// Track guild member counts to only log when changed
 		const guildMemberCounts = new Map();

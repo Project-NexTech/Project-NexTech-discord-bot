@@ -1,6 +1,7 @@
 const { Events, EmbedBuilder, MessageFlags } = require('discord.js');
 const sheetsManager = require('../utils/sheets');
 const { handleHourApprovalModal } = require('../utils/hourApprovalSync');
+const welcomeMessages = require('../utils/welcomeMessages');
 
 module.exports = {
 	name: Events.InteractionCreate,
@@ -246,10 +247,26 @@ module.exports = {
 					.setTimestamp()
 					.setFooter({ text: `User ID: ${interaction.user.id}` });
 
-				await verificationChannel.send({ 
+				await verificationChannel.send({
 					content: `<@&${process.env.VERIFICATION_TEAM_ROLE_ID || '000000000000000000'}> New verification pending!`,
 					embeds: [embed],
 				});
+
+				// Clean up the welcome-ping message now that the form has actually been submitted
+				const pendingPing = welcomeMessages.get(interaction.user.id);
+				if (pendingPing) {
+					try {
+						const pingChannel = await interaction.client.channels.fetch(pendingPing.channelId);
+						const pingMessage = await pingChannel?.messages.fetch(pendingPing.messageId);
+						await pingMessage?.delete();
+					}
+					catch (error) {
+						console.error('Could not delete welcome ping message:', error.message);
+					}
+					finally {
+						welcomeMessages.delete(interaction.user.id);
+					}
+				}
 
 				// Send confirmation to user
 				const confirmationEmbed = new EmbedBuilder()
