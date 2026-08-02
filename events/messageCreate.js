@@ -11,6 +11,18 @@ module.exports = {
 		// Check if the message is a DM (not in a guild)
 		if (!message.guild) {
 			console.log(`[MessageCreate] Received DM from ${message.author.tag}`);
+
+			// Attempted slash command in DMs — tell the user instead of forwarding
+			if (message.content.startsWith('/')) {
+				try {
+					await message.reply('Commands are not supported in DMs. Please use commands in the server instead.');
+				}
+				catch (error) {
+					console.error('Could not send DM command notice:', error.message);
+				}
+				return;
+			}
+
 			try {
 				const verificationChannelId = process.env.STAFF_CHAT_CHANNEL_ID;
 				const verificationTeamRoleId = process.env.VERIFICATION_TEAM_ROLE_ID;
