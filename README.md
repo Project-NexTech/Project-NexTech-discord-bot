@@ -361,7 +361,7 @@ When enabled, the bot polls the **Hour Verification** sheet and DMs department l
 2. Bot resolves the approver(s) from column F of that row — a single name, a comma-separated list, or a group label like `Anyone on EC/BD` (which expands to **all** EC/BD leadership contacts with a Discord ID)
 3. Each approver receives a separate DM with request details (Volunteer, Hours, Department, Date, Type, Link, Description) and **Approve** / **Change** / **Deny** buttons
 4. **Approve** → Sets `Approved` in the column under that confirmer's header; all sibling DMs (other approvers for the same row) are cancelled
-5. **Change** → Modal for revised hours → confirmer column set to `Changed`, and a `oldHours->newHours` note (e.g. `2->1.5`) written to the **Note** column (auto-detected from `Note` header in row 2, column AU by default). The bot does **not** write columns B or C directly — the `Changed` verdict plus note drive the sheet's own formulas.
+5. **Change** → Modal for revised hours → confirmer column set to `Changed`, and a `oldHours->newHours` note (e.g. `2->1.5`) written to the **start** of the **Note** column (auto-detected from `Note` header in row 2, column AU by default); any earlier note content is preserved after the numbers. The numbers must lead the cell because the sheet's formulas parse them from the front. The bot does **not** write columns B or C directly — the `Changed` verdict plus note drive the sheet's own formulas.
 6. **Deny** → Modal for a reason → confirmer column set to `Denied`, reason text written to the **Note** column; all sibling DMs cancelled
 
 Only rows that newly appear **while the bot is running** are DMed. On startup the first scan records all currently-pending rows as a baseline (no DMs), so a restart never re-blasts the backlog. If buttons are never clicked, they expire after `HOUR_APPROVAL_SESSION_HOURS` and the DM is edited to link the exact sheet cell for manual action.
@@ -375,6 +375,26 @@ The assigned confirmer for each row is read from column F (configurable via `HOU
 - Approver must allow DMs from server members
 - Service account needs **write** access to the Events spreadsheet (Hour Verification tab)
 - Notified row numbers **and** live DM button sessions persist in `data/hour-approval-state.json` (not committed to git), so a restart keeps pending DM buttons working and never re-DMs the backlog
+
+### Random BD Audit (optional)
+
+Every hour-request decision made through the bot (Approve/Change/Deny) has a random chance (default 1 in 40) of triggering an additional review by the Board of Directors in the #nt-leaders channel.
+
+**Environment variables:**
+- `NT_LEADERS_CHANNEL_ID` — Channel where audit requests are posted (required for audits to fire)
+- `HOUR_AUDIT_CHANCE=0.025` — Probability per finalized decision (`1` = always, useful for testing; `0` = disabled; unset = 0.025)
+- `HOUR_AUDIT_SESSION_HOURS=168` — How long the audit stays claimable/decidable (parseFloat, fractional values work for testing)
+- `HOUR_AUDIT_CHECKLIST_URL` — Optional link to the Article 11, Section 2 audit checklist, included in the audit message when set
+
+**Flow:**
+1. After a decision is finalized, the bot rolls the dice (every roll is logged as `[HourAudit] Roll for row N...`)
+2. On a hit, a message is posted in #nt-leaders pinging `@Board of Directors` with the full request details, the decision made and by whom, plus a **Take this review** button
+3. Only members holding `BD_ROLE_ID` can claim the review (Administrators do **not** bypass this), and the original decider can never audit their own decision
+4. On claim, a second message appears with **Approve** / **Change** / **Deny** buttons usable only by the claiming reviewer (Change opens a modal for the corrected hours)
+5. **Same decision as the original** → a confirmation is posted and `BD review: <verdict> confirmed by <name>` is **appended** to the Note column (existing content is preserved, joined with ` | `)
+6. **Different decision** → the BD verdict overwrites the exact cell the original decision was written to, an override note is recorded, and the reviewer is pinged to post their reasoning in #nt-leaders. If the override is a **Change**, the new `oldHours->newHours` numbers are written to the start of the Note cell (earlier content and the `BD review:` annotation follow after)
+
+Audit sessions persist in `data/hour-audit-state.json` and are restored on startup, so audit buttons keep working across restarts. If nobody completes the review before `HOUR_AUDIT_SESSION_HOURS`, the buttons are removed and the message links the exact sheet row. If the sheet cell was manually edited after the original decision, an override is aborted with a warning instead of writing.
 
 **Cooldown:** 10 seconds
 
@@ -445,6 +465,12 @@ HOUR_APPROVAL_ENABLED=false
 HOUR_APPROVAL_POLL_MINUTES=5
 HOUR_APPROVAL_LOOKBACK_DAYS=30
 HOUR_APPROVAL_SESSION_HOURS=168
+
+# Random BD audit of hour-request decisions
+NT_LEADERS_CHANNEL_ID=channel_id
+HOUR_AUDIT_CHANCE=0.025
+HOUR_AUDIT_SESSION_HOURS=168
+HOUR_AUDIT_CHECKLIST_URL=
 
 # Apps Script webhook endpoint (member onboarding + reimbursement requests)
 ONBOARD_PORT=25599

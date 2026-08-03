@@ -787,6 +787,118 @@ class SheetsManager {
 	}
 
 	/**
+	 * Write a changed-hours note (e.g. "1.5->1.75") at the START of the Notes
+	 * cell. The sheet's formulas parse the hour numbers from the beginning of
+	 * the cell, so the numbers must lead; existing content is preserved AFTER
+	 * them and an optional annotation goes last, all joined with ' | '.
+	 * @param {number} rowNumber - 1-indexed sheet row number
+	 * @param {string} hoursNote - The oldHours->newHours string
+	 * @param {string|null} annotation - Optional extra note appended at the end
+	 * @returns {Promise<boolean>} Success status
+	 */
+	async setHourVerificationChangedNote(rowNumber, hoursNote, annotation = null) {
+		const grid = await this.fetchHourVerificationGrid();
+		if (!grid) {
+			return false;
+		}
+
+		const columnIndex = grid.notesColumnIndex;
+		if (columnIndex === null || columnIndex === undefined) {
+			console.warn('[HourVerification] No Notes column found — cannot write change note');
+			return false;
+		}
+
+		const row = grid.rows[rowNumber - 1] || [];
+		const existing = row[columnIndex] ? String(row[columnIndex]).trim() : '';
+		const parts = [hoursNote];
+		if (existing) {
+			parts.push(existing);
+		}
+		if (annotation) {
+			parts.push(annotation);
+		}
+		const combined = parts.join(' | ');
+
+		const eventsSheetId = process.env.EVENTS_SHEET_ID;
+		const columnLetter = this.columnIndexToLetter(columnIndex);
+
+		const response = await this.safeApiCall(
+			() => this.sheets.spreadsheets.values.update({
+				spreadsheetId: eventsSheetId,
+				range: `'Hour Verification'!${columnLetter}${rowNumber}`,
+				valueInputOption: 'USER_ENTERED',
+				resource: {
+					values: [[combined]],
+				},
+			}),
+			'setHourVerificationChangedNote',
+		);
+
+		return Boolean(response);
+	}
+
+	/**
+	 * Append a note segment to the Notes column, preserving existing content.
+	 * Existing text always comes first, joined with ' | '. Do NOT use this for
+	 * changed-hours numbers — those must lead the cell (setHourVerificationChangedNote).
+	 * @param {number} rowNumber - 1-indexed sheet row number
+	 * @param {string} noteSuffix - Text to append (without separator)
+	 * @returns {Promise<boolean>} Success status
+	 */
+	async appendHourVerificationNote(rowNumber, noteSuffix) {
+		const grid = await this.fetchHourVerificationGrid();
+		if (!grid) {
+			return false;
+		}
+
+		const columnIndex = grid.notesColumnIndex;
+		if (columnIndex === null || columnIndex === undefined) {
+			console.warn('[HourVerification] No Notes column found — cannot append note');
+			return false;
+		}
+
+		const row = grid.rows[rowNumber - 1] || [];
+		const existing = row[columnIndex] ? String(row[columnIndex]).trim() : '';
+		const combined = existing ? `${existing} | ${noteSuffix}` : noteSuffix;
+
+		const eventsSheetId = process.env.EVENTS_SHEET_ID;
+		const columnLetter = this.columnIndexToLetter(columnIndex);
+
+		const response = await this.safeApiCall(
+			() => this.sheets.spreadsheets.values.update({
+				spreadsheetId: eventsSheetId,
+				range: `'Hour Verification'!${columnLetter}${rowNumber}`,
+				valueInputOption: 'USER_ENTERED',
+				resource: {
+					values: [[combined]],
+				},
+			}),
+			'appendHourVerificationNote',
+		);
+
+		return Boolean(response);
+	}
+
+	/**
+	 * Read the current raw value of one Hour Verification cell
+	 * @param {number} rowNumber - 1-indexed sheet row number
+	 * @param {number} columnIndex - 0-based column index
+	 * @returns {Promise<string|null>} Cell text ('' if empty), or null if the grid could not be read
+	 */
+	async getHourVerificationCellValue(rowNumber, columnIndex) {
+		const grid = await this.fetchHourVerificationGrid();
+		if (!grid) {
+			return null;
+		}
+
+		const row = grid.rows[rowNumber - 1];
+		if (!row) {
+			return '';
+		}
+		return row[columnIndex] ? String(row[columnIndex]) : '';
+	}
+
+	/**
 	 * Resolve and cache the gid (sheetId) of the Hour Verification tab
 	 * @returns {Promise<number|null>}
 	 */
@@ -1039,7 +1151,7 @@ class SheetsManager {
 		);
 
 		if (!response || !response.data) {
-			console.error('❌ Failed to get contacts data from Google Sheets');
+			console.error(`❌ Failed to get contacts data from Google Sheets (LEADERSHIP_SHEET_ID=${spreadsheetId || 'unset'})`);
 			return [];
 		}
 
@@ -1052,7 +1164,8 @@ class SheetsManager {
 				department: row[1] || '',
 				email: row[2] || 'No email listed',
 				discordUsername: row[3] || 'Unknown',
-				discordId: row[4] || '',
+				// Trim so a stray space in the sheet cell can't break users.fetch later.
+				discordId: (row[4] || '').trim(),
 				role: row[5] || 'Member',
 				note: row[5] || '',
 			}));
@@ -1087,7 +1200,7 @@ class SheetsManager {
 		);
 
 		if (!response || !response.data) {
-			console.error('❌ Failed to get contacts data from Google Sheets for getContactByName');
+			console.error(`❌ Failed to get contacts data from Google Sheets for getContactByName (LEADERSHIP_SHEET_ID=${spreadsheetId || 'unset'})`);
 			return null;
 		}
 
@@ -1101,7 +1214,8 @@ class SheetsManager {
 				department: row[1] || '',
 				email: row[2] || 'No email listed',
 				discordUsername: row[3] || 'Unknown',
-				discordId: row[4] || '',
+				// Trim so a stray space in the sheet cell can't break users.fetch later.
+				discordId: (row[4] || '').trim(),
 				role: row[5] || 'Member',
 			}));
 
@@ -1116,6 +1230,15 @@ class SheetsManager {
 		const partialContact = contacts.find(c => normalizedSearchName.includes(c.name.toLowerCase().trim()));
 		if (partialContact && partialContact.discordId && partialContact.discordId.trim()) {
 			return partialContact;
+		}
+
+		// The name IS on the sheet but has no Discord ID — log that specifically so
+		// it isn't mistaken for a missing/misspelled name.
+		const matchedWithoutId = contact || partialContact;
+		if (matchedWithoutId) {
+			console.warn(
+				`[Leadership] Contact "${matchedWithoutId.name}" matches "${name}" but has no Discord ID on the Leadership sheet — skipping`,
+			);
 		}
 
 		return null;
@@ -1188,9 +1311,19 @@ class SheetsManager {
 		]);
 
 		const seen = new Set();
+		const skippedNames = new Set();
 		const result = [];
 		for (const c of [...ecContacts, ...bdContacts]) {
-			if (c.discordId && c.discordId.trim() && !seen.has(c.discordId)) {
+			if (!c.discordId || !c.discordId.trim()) {
+				// Log (once per person) instead of silently dropping them, then keep going —
+				// one missing ID must never block the rest of the group.
+				if (!skippedNames.has(c.name)) {
+					skippedNames.add(c.name);
+					console.warn(`[Leadership] Skipping EC/BD contact "${c.name}" — no Discord ID on the Leadership sheet`);
+				}
+				continue;
+			}
+			if (!seen.has(c.discordId)) {
 				seen.add(c.discordId);
 				result.push(c);
 			}

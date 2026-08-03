@@ -2,6 +2,7 @@ const { Events } = require('discord.js');
 const sheetsManager = require('../utils/sheets');
 const { startCalendarSync } = require('../utils/calendarSync');
 const { startHourApprovalSync } = require('../utils/hourApprovalSync');
+const { restoreHourAuditSessions } = require('../utils/hourAudit');
 const memberCache = require('../utils/memberCache');
 const welcomeMessages = require('../utils/welcomeMessages');
 
@@ -99,6 +100,16 @@ module.exports = {
 		}
 		else {
 			console.log('ℹ️ Hour approval sync is intentionally disabled (HOUR_APPROVAL_ENABLED=false)');
+		}
+
+		// Restore BD audit sessions so audit buttons posted before a restart stay
+		// actionable. Runs even when hour approval sync is disabled — already-posted
+		// audits must still be resolvable.
+		try {
+			await restoreHourAuditSessions(client);
+		}
+		catch (error) {
+			console.error('❌ Failed to restore hour audit sessions:', error.message);
 		}
 
 		// Start periodic check for users who left the server (if enabled)

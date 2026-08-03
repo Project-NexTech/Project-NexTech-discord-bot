@@ -1,5 +1,6 @@
 const { Collection, Events, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder, ChannelType } = require('discord.js');
 const { handleHourApprovalButton } = require('../utils/hourApprovalSync');
+const { handleHourAuditButton } = require('../utils/hourAudit');
 
 module.exports = {
 	name: Events.InteractionCreate,
@@ -7,6 +8,10 @@ module.exports = {
 		if (interaction.isButton()) {
 			const handled = await handleHourApprovalButton(interaction);
 			if (handled) {
+				return;
+			}
+			const auditHandled = await handleHourAuditButton(interaction);
+			if (auditHandled) {
 				return;
 			}
 		}

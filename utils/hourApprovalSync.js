@@ -10,6 +10,7 @@ const {
 	TextInputStyle,
 } = require('discord.js');
 const sheetsManager = require('./sheets');
+const { maybeTriggerHourAudit } = require('./hourAudit');
 
 const stateFilePath = path.join(__dirname, '..', 'data', 'hour-approval-state.json');
 const DEFAULT_LOOKBACK_DAYS = 30;
@@ -317,6 +318,17 @@ async function notifyApprovers(client, request, approvers) {
 
 	const volunteerNameNorm = (request.name || '').toLowerCase().trim();
 	for (const approverContact of approvers) {
+		// Every failure below skips just this person — one bad or unresolvable ID
+		// must never prevent the remaining approvers from being DMed.
+		const approverId = approverContact.discordId ? String(approverContact.discordId).trim() : '';
+		if (!/^\d+$/.test(approverId)) {
+			console.warn(
+				`[HourApproval] Skipping approver "${approverContact.name}" for row ${request.rowNumber} — `
+				+ (approverId ? `"${approverId}" is not a valid Discord ID` : 'no Discord ID on the Leadership sheet'),
+			);
+			continue;
+		}
+
 		// Strip quoted nicknames (e.g. 'Pryya "Sompan" Surarujiroj' → 'Pryya Surarujiroj') before comparing.
 		const approverNameNorm = (approverContact.name || '').replace(/"[^"]*"/g, '').replace(/\s+/g, ' ').toLowerCase().trim();
 		if (approverNameNorm === volunteerNameNorm) {
@@ -325,20 +337,20 @@ async function notifyApprovers(client, request, approvers) {
 		}
 
 		try {
-			const approverUser = await client.users.fetch(approverContact.discordId);
+			const approverUser = await client.users.fetch(approverId);
 			const embed = buildHourApprovalEmbed(request);
-			const components = [buildApprovalButtons(request.rowNumber, approverContact.discordId)];
+			const components = [buildApprovalButtons(request.rowNumber, approverId)];
 			const dmMessage = await approverUser.send({ embeds: [embed], components });
 
 			const timeoutId = setTimeout(() => {
-				expireHourApprovalSession(client, request.rowNumber, approverContact.discordId);
+				expireHourApprovalSession(client, request.rowNumber, approverId);
 			}, timeoutMs);
 
-			rowSessions.set(approverContact.discordId, {
+			rowSessions.set(approverId, {
 				request,
 				// Store the column index specific to this approver (null → overall Verdict col).
 				confirmerColumnIndex: approverContact.confirmerColumnIndex ?? null,
-				approverId: approverContact.discordId,
+				approverId,
 				approverSheetName: approverContact.name,
 				messageId: dmMessage.id,
 				channelId: dmMessage.channel.id,
@@ -349,11 +361,25 @@ async function notifyApprovers(client, request, approvers) {
 			console.log(`[HourApproval] New request — row ${request.rowNumber} "${request.name}" — DM sent to ${approverContact.name}`);
 		}
 		catch (error) {
+			let hint = '';
+			if (error?.code === 10013) {
+				hint = ' — the Discord ID on the Leadership sheet does not match any Discord user';
+			}
+			else if (error?.code === 50007) {
+				hint = ' — the user is not accepting DMs';
+			}
 			console.error(
-				`[HourApproval] Failed to DM ${approverContact.name} for row ${request.rowNumber}:`,
+				`[HourApproval] Failed to DM ${approverContact.name} (ID ${approverId}) for row ${request.rowNumber}${hint}:`,
 				error.message,
 			);
 		}
+	}
+
+	if (rowSessions.size === 0) {
+		client.hourApprovalPending.delete(request.rowNumber);
+		console.warn(
+			`[HourApproval] Row ${request.rowNumber}: no approver could be DMed — the request must be actioned manually in the sheet`,
+		);
 	}
 
 	notifiedRows.add(request.rowNumber);
@@ -439,23 +465,33 @@ async function syncHourApprovalRequests(client) {
 				continue;
 			}
 
-			const confirmer = request.confirmer && request.confirmer !== 'N/A'
-				? request.confirmer.trim()
-				: null;
+			// Isolate each row: an unexpected error while resolving or DMing one
+			// request must not abort the remaining rows in this sync pass.
+			try {
+				const confirmer = request.confirmer && request.confirmer !== 'N/A'
+					? request.confirmer.trim()
+					: null;
 
-			if (!confirmer) continue;
+				if (!confirmer) continue;
 
-			const approvers = await sheetsManager.getApproversForConfirmer(confirmer);
+				const approvers = await sheetsManager.getApproversForConfirmer(confirmer);
 
-			if (approvers.length === 0) {
-				console.warn(
-					`[HourApproval] No leadership contacts with Discord IDs found for confirmer "${confirmer}" `
-					+ `(row ${request.rowNumber}). Ensure members have Discord IDs on the Leadership sheet.`,
-				);
-				continue;
+				if (approvers.length === 0) {
+					console.warn(
+						`[HourApproval] No leadership contacts with Discord IDs found for confirmer "${confirmer}" `
+						+ `(row ${request.rowNumber}). Ensure members have Discord IDs on the Leadership sheet.`,
+					);
+					continue;
+				}
+
+				await notifyApprovers(client, request, approvers);
 			}
-
-			await notifyApprovers(client, request, approvers);
+			catch (error) {
+				console.error(
+					`[HourApproval] Failed to process row ${request.rowNumber} — continuing with remaining rows:`,
+					error.message,
+				);
+			}
 		}
 
 		if (isBaseline) {
@@ -623,6 +659,16 @@ async function handleHourApprovalButton(interaction) {
 
 	console.log(`[HourApproval] Row ${rowNumber} approved by ${interaction.user.tag}`);
 
+	await maybeTriggerHourAudit(interaction.client, {
+		request: pending.request,
+		confirmerColumnIndex: pending.confirmerColumnIndex,
+		verdict: 'Approved',
+		note: null,
+		newHours: null,
+		approverId: pending.approverId,
+		approverName,
+	});
+
 	return true;
 }
 
@@ -693,7 +739,9 @@ async function handleHourApprovalModal(interaction) {
 			return true;
 		}
 
-		const noteSuccess = await sheetsManager.setHourVerificationNote(rowNumber, noteText);
+		// The hour numbers must lead the Notes cell for the sheet's formulas;
+		// any earlier note content is kept after them.
+		const noteSuccess = await sheetsManager.setHourVerificationChangedNote(rowNumber, noteText);
 		if (!noteSuccess) {
 			console.warn(`[HourApproval] Row ${rowNumber}: verdict set to Changed but failed to write the Note column`);
 		}
@@ -723,6 +771,17 @@ async function handleHourApprovalModal(interaction) {
 		});
 
 		console.log(`[HourApproval] Row ${rowNumber} changed (${noteText}) by ${interaction.user.tag}`);
+
+		await maybeTriggerHourAudit(interaction.client, {
+			request: pending.request,
+			confirmerColumnIndex: pending.confirmerColumnIndex,
+			verdict: 'Changed',
+			note: noteText,
+			newHours,
+			approverId: pending.approverId,
+			approverName,
+		});
+
 		return true;
 	}
 
@@ -772,6 +831,17 @@ async function handleHourApprovalModal(interaction) {
 	});
 
 	console.log(`[HourApproval] Row ${rowNumber} denied by ${interaction.user.tag}: ${reason}`);
+
+	await maybeTriggerHourAudit(interaction.client, {
+		request: pending.request,
+		confirmerColumnIndex: pending.confirmerColumnIndex,
+		verdict: 'Denied',
+		note: reason,
+		newHours: null,
+		approverId: pending.approverId,
+		approverName,
+	});
+
 	return true;
 }
 

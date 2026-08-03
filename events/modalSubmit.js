@@ -1,6 +1,7 @@
 const { Events, EmbedBuilder, MessageFlags } = require('discord.js');
 const sheetsManager = require('../utils/sheets');
 const { handleHourApprovalModal } = require('../utils/hourApprovalSync');
+const { handleHourAuditModal } = require('../utils/hourAudit');
 const welcomeMessages = require('../utils/welcomeMessages');
 
 module.exports = {
@@ -10,6 +11,11 @@ module.exports = {
 
 		const hourApprovalHandled = await handleHourApprovalModal(interaction);
 		if (hourApprovalHandled) {
+			return;
+		}
+
+		const hourAuditHandled = await handleHourAuditModal(interaction);
+		if (hourAuditHandled) {
 			return;
 		}
 
