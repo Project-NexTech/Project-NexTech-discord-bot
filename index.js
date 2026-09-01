@@ -115,6 +115,14 @@ for (const file of eventFiles) {
 	}
 }
 
+// Project group category configuration (used by /addtoprojectgroup and /verifyuser's project_group option)
+if (!process.env.PROJECT_GROUPS_CATEGORY_ID) {
+	console.warn('⚠️ PROJECT_GROUPS_CATEGORY_ID is not set — project group channel lookups will not find any channels.');
+}
+if (!process.env.PROJECT_GROUPS_CATEGORY_2_ID) {
+	console.warn('⚠️ PROJECT_GROUPS_CATEGORY_2_ID is not set — only the first project group category will be searched.');
+}
+
 // Global error handlers to prevent crashes
 process.on('unhandledRejection', (error) => {
 	console.error('❌ Unhandled Promise Rejection:', error);

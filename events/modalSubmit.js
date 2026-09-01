@@ -3,6 +3,7 @@ const sheetsManager = require('../utils/sheets');
 const { handleHourApprovalModal } = require('../utils/hourApprovalSync');
 const { handleHourAuditModal } = require('../utils/hourAudit');
 const welcomeMessages = require('../utils/welcomeMessages');
+const { addVerifiedUserToProjectGroup } = require('../utils/projectGroups');
 
 module.exports = {
 	name: Events.InteractionCreate,
@@ -130,6 +131,18 @@ module.exports = {
 					});
 				}
 
+				// Optional project group add (never blocks verification)
+				let projectGroupResult = null;
+				if (userData.projectGroup) {
+					projectGroupResult = await addVerifiedUserToProjectGroup(
+						interaction.client,
+						targetMember.guild,
+						userData.projectGroup,
+						targetMember.id,
+						interaction.user.id,
+					);
+				}
+
 				// Create success embed
 				const embed = new EmbedBuilder()
 					.setColor(0x57F287)
@@ -147,6 +160,10 @@ module.exports = {
 					)
 					.setTimestamp()
 					.setFooter({ text: 'Project NexTech Verification' });
+
+				if (projectGroupResult) {
+					embed.addFields({ name: 'Project Group', value: projectGroupResult.summary, inline: false });
+				}
 
 				if (warningMessage) {
 					embed.setDescription(embed.data.description + warningMessage);
@@ -170,21 +187,25 @@ module.exports = {
 
 				// Send confirmation to the command user
 				await interaction.editReply({
-					content: `✅ Successfully verified ${targetMember.user}!\n\n**Nicknames Updated:**\n• ${targetMember.user}: \`[ɴᴛ] ${newUserNickname}\`\n• ${conflictingMember.user}: \`[ɴᴛ] ${existingUserNickname}\`\n\nDetails have been logged to staff chat.`,
+					content: `✅ Successfully verified ${targetMember.user}!\n\n**Nicknames Updated:**\n• ${targetMember.user}: \`[ɴᴛ] ${newUserNickname}\`\n• ${conflictingMember.user}: \`[ɴᴛ] ${existingUserNickname}\`\n\nDetails have been logged to staff chat.${projectGroupResult ? `\nProject group: ${projectGroupResult.summary}` : ''}`,
 				});
 
-				// Send welcome message to NT chat channel
+				// Send welcome message — to the project group channel if one was resolved, otherwise NT chat
 				try {
-					if (ntChatChannelId) {
+					const welcomeChannelMessage = `Welcome to Project NexTech, ${targetMember.user}! Please check <#1231776603126890671> for updates every few days and get your roles in <#1231777272906649670>. You can select any departments/subjects you are interested in. <#1386576733674668052> has useful information to get started. New members should go to one of our online info sessions. We will announce in <#1231776603126890671> when we will have one.`;
+
+					if (projectGroupResult && projectGroupResult.channel) {
+						await projectGroupResult.channel.send(welcomeChannelMessage);
+					}
+					else if (ntChatChannelId) {
 						const ntChatChannel = await interaction.client.channels.fetch(ntChatChannelId);
 						if (ntChatChannel) {
-							const welcomeChannelMessage = `Welcome to Project NexTech, ${targetMember.user}! Please check <#1231776603126890671> for updates every few days and get your roles in <#1231777272906649670>. You can select any departments/subjects you are interested in. <#1386576733674668052> has useful information to get started. New members should go to one of our online info sessions. We will announce in <#1231776603126890671> when we will have one.`;
 							await ntChatChannel.send(welcomeChannelMessage);
 						}
 					}
 				}
 				catch (channelError) {
-					console.error('Could not send welcome message to NT chat channel:', channelError);
+					console.error('Could not send welcome message:', channelError);
 				}
 
 				// Clean up pending verification data

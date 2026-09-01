@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const sheetsManager = require('../../utils/sheets');
 const { hasRequiredRole } = require('../../utils/helpers');
+const { getProjectGroupAutocompleteChoices, addVerifiedUserToProjectGroup } = require('../../utils/projectGroups');
 
 module.exports = {
 	cooldown: 10,
@@ -75,11 +76,26 @@ module.exports = {
 				.setRequired(false)
 				.setMaxLength(27),
 		)
+		.addStringOption(option =>
+			option
+				.setName('project_group')
+				.setDescription('Project group channel to add the member to after verification')
+				.setRequired(false)
+				.setAutocomplete(true),
+		)
 		.setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles),
 	async autocomplete(interaction) {
 		try {
-			const focusedValue = interaction.options.getFocused().toLowerCase();
-			
+			const focused = interaction.options.getFocused(true);
+
+			if (focused.name === 'project_group') {
+				return await interaction.respond(
+					await getProjectGroupAutocompleteChoices(interaction.guild, focused.value),
+				);
+			}
+
+			const focusedValue = focused.value.toLowerCase();
+
 			// Get all region roles that match the pattern: "Region Name (CC #)"
 			// Example: "San Diego (US 1)"
 			const regionPattern = /^.+\s\([A-Z]{2}\s\d+\)$/i; // Case insensitive
@@ -213,6 +229,11 @@ module.exports = {
 				? rawNickname.replace(/^\[ɴᴛ\]\s*/i, '').trim() || null
 				: null;
 
+			// 'none' is the project-group autocomplete empty-state sentinel
+			const rawProjectGroup = interaction.options.getString('project_group');
+			const trimmedProjectGroup = rawProjectGroup ? rawProjectGroup.trim() : '';
+			const projectGroup = (trimmedProjectGroup && trimmedProjectGroup !== 'none') ? trimmedProjectGroup : null;
+
 			const userData = {
 				discordId: targetUser.id,
 				username: targetUser.username,
@@ -225,6 +246,7 @@ module.exports = {
 				hasIRLConnection: interaction.options.getBoolean('irl_connection') ?? false,
 				verifiedBy: interaction.user.username,
 				customNickname,
+				projectGroup,
 			};
 
 			// Check for missing optional fields
@@ -668,6 +690,20 @@ module.exports = {
 				});
 			}
 
+			// ============================================
+			// STEP 5: Optional project group add (never blocks verification)
+			// ============================================
+			let projectGroupResult = null;
+			if (userData.projectGroup) {
+				projectGroupResult = await addVerifiedUserToProjectGroup(
+					interaction.client,
+					interaction.guild,
+					userData.projectGroup,
+					targetUser.id,
+					interaction.user.id,
+				);
+			}
+
 			// Create success embed (always shown regardless of DM status)
 			const embed = new EmbedBuilder()
 				.setColor(0x57F287)
@@ -685,6 +721,10 @@ module.exports = {
 				)
 				.setTimestamp()
 				.setFooter({ text: 'Project NexTech Verification' });
+
+			if (projectGroupResult) {
+				embed.addFields({ name: 'Project Group', value: projectGroupResult.summary, inline: false });
+			}
 
 			if (warningMessage) {
 				embed.setDescription(embed.data.description + warningMessage);
@@ -736,28 +776,34 @@ module.exports = {
 
 			// Send confirmation to the command user
 			await interaction.editReply({
-				content: `Successfully verified ${targetUser}. Details have been logged to <#${staffChatChannelId}>.`,
+				content: `Successfully verified ${targetUser}. Details have been logged to <#${staffChatChannelId}>.${projectGroupResult ? `\nProject group: ${projectGroupResult.summary}` : ''}`,
 			});
 
-			// Send welcome message to NT chat channel
+			// Send welcome message — to the project group channel if one was resolved, otherwise NT chat
 			try {
-				const ntChatChannelId = process.env.NT_CHAT_CHANNEL_ID;
-				if (ntChatChannelId) {
-					const ntChatChannel = await interaction.client.channels.fetch(ntChatChannelId);
-					if (ntChatChannel) {
-						const welcomeChannelMessage = `Welcome to Project NexTech, ${targetUser}! Please check <#1231776603126890671> for updates every few days and get your roles in <#1231777272906649670>. You can select any departments/subjects you are interested in. <#1386576733674668052> has useful information to get started. New members should go to one of our online info sessions. We will announce in <#1231776603126890671> when we will have one.`;
-						await ntChatChannel.send(welcomeChannelMessage);
-					}
-					else {
-						console.error('NT_CHAT_CHANNEL_ID channel not found');
-					}
+				const welcomeChannelMessage = `Welcome to Project NexTech, ${targetUser}! Please check <#1231776603126890671> for updates every few days and get your roles in <#1231777272906649670>. You can select any departments/subjects you are interested in. <#1386576733674668052> has useful information to get started. New members should go to one of our online info sessions. We will announce in <#1231776603126890671> when we will have one.`;
+
+				if (projectGroupResult && projectGroupResult.channel) {
+					await projectGroupResult.channel.send(welcomeChannelMessage);
 				}
 				else {
-					console.error('NT_CHAT_CHANNEL_ID not set in environment variables');
+					const ntChatChannelId = process.env.NT_CHAT_CHANNEL_ID;
+					if (ntChatChannelId) {
+						const ntChatChannel = await interaction.client.channels.fetch(ntChatChannelId);
+						if (ntChatChannel) {
+							await ntChatChannel.send(welcomeChannelMessage);
+						}
+						else {
+							console.error('NT_CHAT_CHANNEL_ID channel not found');
+						}
+					}
+					else {
+						console.error('NT_CHAT_CHANNEL_ID not set in environment variables');
+					}
 				}
 			}
 			catch (channelError) {
-				console.error('Could not send welcome message to NT chat channel:', channelError);
+				console.error('Could not send welcome message:', channelError);
 				// Don't fail the verification if channel message fails
 			}
 		}
@@ -1024,7 +1070,18 @@ module.exports = {
 			// ============================================
 			// STEP 4: Send notifications
 			// ============================================
-			// const { EmbedBuilder } = require('discord.js');
+			// Optional project group add (never blocks verification)
+			let projectGroupResult = null;
+			if (userData.projectGroup) {
+				projectGroupResult = await addVerifiedUserToProjectGroup(
+					buttonInteraction.client,
+					targetMember.guild,
+					userData.projectGroup,
+					targetUser.id,
+					buttonInteraction.user.id,
+				);
+			}
+
 			const embed = new EmbedBuilder()
 				.setColor(0x57F287)
 				.setTitle('✅ User Verified Successfully')
@@ -1041,6 +1098,10 @@ module.exports = {
 				)
 				.setTimestamp()
 				.setFooter({ text: 'Project NexTech Verification' });
+
+			if (projectGroupResult) {
+				embed.addFields({ name: 'Project Group', value: projectGroupResult.summary, inline: false });
+			}
 
 			if (warningMessage) {
 				embed.setDescription(embed.data.description + warningMessage);
@@ -1069,23 +1130,29 @@ module.exports = {
 
 			// Send confirmation
 			await buttonInteraction.editReply({
-				content: `✅ Successfully verified ${targetUser}. Details have been logged to <#${staffChatChannelId}>.`,
+				content: `✅ Successfully verified ${targetUser}. Details have been logged to <#${staffChatChannelId}>.${projectGroupResult ? `\nProject group: ${projectGroupResult.summary}` : ''}`,
 				components: [],
 			});
 
-			// Send welcome message to NT chat channel
+			// Send welcome message — to the project group channel if one was resolved, otherwise NT chat
 			try {
-				const ntChatChannelId = process.env.NT_CHAT_CHANNEL_ID;
-				if (ntChatChannelId) {
-					const ntChatChannel = await buttonInteraction.client.channels.fetch(ntChatChannelId);
-					if (ntChatChannel) {
-						const welcomeChannelMessage = `Welcome to Project NexTech, ${targetUser}! Please check <#1231776603126890671> for updates every few days and get your roles in <#1231777272906649670>. You can select any departments/subjects you are interested in. <#1386576733674668052> has useful information to get started. New members should go to one of our online info sessions. We will announce in <#1231776603126890671> when we will have one.`;
-						await ntChatChannel.send(welcomeChannelMessage);
+				const welcomeChannelMessage = `Welcome to Project NexTech, ${targetUser}! Please check <#1231776603126890671> for updates every few days and get your roles in <#1231777272906649670>. You can select any departments/subjects you are interested in. <#1386576733674668052> has useful information to get started. New members should go to one of our online info sessions. We will announce in <#1231776603126890671> when we will have one.`;
+
+				if (projectGroupResult && projectGroupResult.channel) {
+					await projectGroupResult.channel.send(welcomeChannelMessage);
+				}
+				else {
+					const ntChatChannelId = process.env.NT_CHAT_CHANNEL_ID;
+					if (ntChatChannelId) {
+						const ntChatChannel = await buttonInteraction.client.channels.fetch(ntChatChannelId);
+						if (ntChatChannel) {
+							await ntChatChannel.send(welcomeChannelMessage);
+						}
 					}
 				}
 			}
 			catch (channelError) {
-				console.error('Could not send welcome message to NT chat channel:', channelError);
+				console.error('Could not send welcome message:', channelError);
 			}
 
 		}

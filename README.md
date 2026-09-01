@@ -130,6 +130,27 @@ Create a Discord channel for a project group and grant access to its members.
 
 ---
 
+#### `/addtoprojectgroup`
+Add a single member to an existing project group channel.
+
+**Permissions:** Verification Team, NT Executive Committee, or Administrator  
+**Cooldown:** None  
+**Options:**
+- `user` (required) - The member to add
+- `group` (required) - Project group channel name, with autocomplete
+
+**Features:**
+- Matches the slugified input directly against channel names under the project group categories
+- Searches both project group categories (`PROJECT_GROUPS_CATEGORY_ID`, then the optional
+  `PROJECT_GROUPS_CATEGORY_2_ID`)
+- Autocomplete suggests channel names from both categories
+- Grants the same View Channel + Send Messages overwrite used at channel creation; reports
+  "already has access" instead of re-creating an existing overwrite
+- Records every successful addition as an embed in the log channel (`LOG_CHANNEL_ID`), including
+  who was added, the channel, and who ran the command
+
+---
+
 #### `/syncroles`
 Synchronize NT Enrolled/Unenrolled roles based on membership status from Google Sheets.
 
@@ -159,6 +180,9 @@ Manually verify a new member and assign appropriate roles.
 - `region` (optional) - Region with autocomplete
 - `robotics_team` (optional) - Robotics team number or name
 - `invite_source` (optional) - How they found Project NexTech
+- `nickname` (optional) - Override server nickname (without the [ɴᴛ] prefix)
+- `project_group` (optional) - Project group channel to add the member to after verification, with
+  autocomplete (same resolution as `/addtoprojectgroup`; a failed add never blocks verification)
 
 **Features:**
 - **Automatic Nickname Conflict Detection & Resolution:**
@@ -444,7 +468,10 @@ VERIFICATION_TEAM_ROLE_ID=role_id
 INFO_SESSION_VOICE_CHANNEL_ID=channel_id
 NT_CHAT_CHANNEL_ID=channel_id
 STAFF_CHAT_CHANNEL_ID=channel_id
+LOG_CHANNEL_ID=channel_id
 PROJECT_GROUPS_CATEGORY_ID=category_id
+# Optional second project-groups category (leave empty if only one category exists)
+PROJECT_GROUPS_CATEGORY_2_ID=
 
 # Google Sheets IDs
 VOLUNTEERS_SHEET_ID=sheet_id

@@ -1,20 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const sheetsManager = require('../../utils/sheets');
 const { hasRequiredRole } = require('../../utils/helpers');
-
-/**
- * Convert a display name into a valid Discord channel name.
- * @param {string} name - Original display name
- * @returns {string} Slugified channel name
- */
-function slugify(name) {
-	return name
-		.toLowerCase()
-		.replace(/\s+/g, '-') // whitespace runs -> single dash
-		.replace(/[^a-z0-9-]/g, '') // strip invalid characters
-		.replace(/-+/g, '-') // collapse consecutive dashes
-		.replace(/^-+|-+$/g, ''); // trim leading/trailing dashes
-}
+const { slugify } = require('../../utils/projectGroups');
 
 module.exports = {
 	data: new SlashCommandBuilder()
