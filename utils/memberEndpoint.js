@@ -1,5 +1,6 @@
 /**
- * HTTP endpoint for Apps Script triggers (member onboarding, reimbursement requests).
+ * HTTP endpoint for Apps Script triggers (member onboarding, reimbursement requests,
+ * new event media folders).
  *
  * Add this to your existing discord.js bot. Call setupMemberEndpoint(client)
  * after your bot is logged in.
@@ -9,6 +10,7 @@
  *   ONBOARD_SECRET           - shared secret; must match DISCORD_BOT_SECRET in Apps Script
  *   STAFF_CHAT_CHANNEL_ID    - channel ID where /members/report posts its summary embed
  *   REIMBURSEMENT_THREAD_ID  - thread ID where /reimbursement/submit posts its embed
+ *   EVENT_FOLDER_CHANNEL_ID  - channel (or thread) ID where /events/folder posts its embed
  *
  * Routes:
  *   POST /members/add          - triggers role sync; body ignored (cap 8 KB)
@@ -18,6 +20,10 @@
  *                                thread, pinging EC_ROLE_ID and BD_ROLE_ID (JSON body, cap 16 KB)
  *                                Expected body: { name, discordUsername, amount, evidenceLink,
  *                                purchaseDate, purchaseType, receiptMethod, details }
+ *   POST /events/folder        - posts a new event media folder link embed to the event
+ *                                folder channel (JSON body, cap 16 KB)
+ *                                Expected body: { folderUrl, folderName, eventName, eventCode,
+ *                                date, dateIso, location, uuid } (only folderUrl is required)
  *
  * All routes use Bearer auth with ONBOARD_SECRET.
  *
@@ -29,6 +35,7 @@ const http = require('http');
 const { EmbedBuilder } = require('discord.js');
 const { performRoleSync } = require('../commands/admin/syncroles');
 const { postReimbursementRequest } = require('./reimbursementNotify');
+const { postEventFolder } = require('./eventFolderNotify');
 
 function setupMemberEndpoint(client) {
 	const port = parseInt(process.env.ONBOARD_PORT, 10);
@@ -47,7 +54,8 @@ function setupMemberEndpoint(client) {
 		const isAdd = req.url === '/members/add';
 		const isReport = req.url === '/members/report';
 		const isReimbursement = req.url === '/reimbursement/submit';
-		if (!isAdd && !isReport && !isReimbursement) {
+		const isEventFolder = req.url === '/events/folder';
+		if (!isAdd && !isReport && !isReimbursement && !isEventFolder) {
 			return sendJson(res, 404, { ok: false, error: 'Not found' });
 		}
 
@@ -86,7 +94,7 @@ function setupMemberEndpoint(client) {
 				return;
 			}
 
-			// /members/report and /reimbursement/submit both take a JSON body.
+			// /members/report, /reimbursement/submit, and /events/folder all take a JSON body.
 			let payload;
 			try {
 				payload = JSON.parse(body);
@@ -105,6 +113,21 @@ function setupMemberEndpoint(client) {
 				}
 				catch (e) {
 					console.error('[onboard] postReimbursementRequest failed:', e);
+					sendJson(res, 500, { ok: false, error: String(e.message || e) });
+				}
+				return;
+			}
+
+			if (isEventFolder) {
+				if (!payload.folderUrl) {
+					return sendJson(res, 400, { ok: false, error: 'Missing required field: folderUrl' });
+				}
+				try {
+					await postEventFolder(client, payload);
+					sendJson(res, 200, { ok: true, detail: 'Folder link posted.' });
+				}
+				catch (e) {
+					console.error('[onboard] postEventFolder failed:', e);
 					sendJson(res, 500, { ok: false, error: String(e.message || e) });
 				}
 				return;
