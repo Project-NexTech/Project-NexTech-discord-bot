@@ -2,6 +2,7 @@ const { Events } = require('discord.js');
 const sheetsManager = require('../utils/sheets');
 const { startCalendarSync } = require('../utils/calendarSync');
 const { startHourApprovalSync } = require('../utils/hourApprovalSync');
+const { startMeetingReminders } = require('../utils/meetingReminders');
 const { restoreHourAuditSessions } = require('../utils/hourAudit');
 const memberCache = require('../utils/memberCache');
 const welcomeMessages = require('../utils/welcomeMessages');
@@ -80,6 +81,20 @@ module.exports = {
 		}
 		catch (error) {
 			console.error('❌ Failed to start calendar sync:', error.message);
+		}
+
+		if (process.env.MEETING_REMINDER_CALENDAR_ID) {
+			try {
+				const pollMinutes = parseFloat(process.env.MEETING_REMINDER_POLL_MINUTES) || 5;
+				startMeetingReminders(client, pollMinutes);
+				console.log('✅ Meeting reminders started');
+			}
+			catch (error) {
+				console.error('❌ Failed to start meeting reminders:', error.message);
+			}
+		}
+		else {
+			console.log('ℹ️ Meeting reminders are disabled (MEETING_REMINDER_CALENDAR_ID is not set)');
 		}
 
 		// Start automatic hour approval notifications (if enabled)
